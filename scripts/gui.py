@@ -463,10 +463,36 @@ def main() -> None:
                 "email": st.session_state["contacto_email"],
                 "empresa": st.session_state["empresa_correo"],
             }
+            contacto_preview = None
             if st.session_state["contacto_email"]:
-                c = engine.cargar_contacto_por_email(st.session_state["contacto_email"])
-                if c:
-                    variables["nombre"] = c["datos"].get("nombre", "")
+                contacto_preview = engine.cargar_contacto_por_email(st.session_state["contacto_email"])
+                if contacto_preview:
+                    variables["nombre"] = contacto_preview["datos"].get("nombre", "")
+
+            # --- Tarjeta de metadatos ---
+            st.markdown("### Metadatos del correo")
+            meta_asunto = st.session_state.get("asunto", "")
+            meta_destinatarios: list[str] = []
+            if contacto_preview:
+                nombre_para = contacto_preview["datos"].get("nombre", "")
+                email_para = contacto_preview["datos"].get("email", "")
+                meta_destinatarios.append(f"👤 **Para:** {nombre_para} <{email_para}>")
+            if st.session_state.get("cc"):
+                meta_destinatarios.append(f"👥 **CC:** {st.session_state['cc']}")
+            if st.session_state.get("cco"):
+                meta_destinatarios.append(f"👁️ **CCO:** {st.session_state['cco']}")
+            meta_adjuntos = st.session_state.get("adjuntos_seleccionados", [])
+
+            with st.container(border=True):
+                st.markdown(f"📧 **Asunto:** {meta_asunto}")
+                for linea in meta_destinatarios:
+                    st.markdown(linea)
+                if meta_adjuntos:
+                    nombres_adjuntos = ", ".join(a.name for a in meta_adjuntos)
+                    st.markdown(f"📎 **Adjuntos:** {nombres_adjuntos}")
+
+            st.markdown("---")
+            st.markdown("### Vista previa del correo")
             html = renderizar_preview(plantilla, firma, variables)
             st.components.v1.html(html, height=700, scrolling=True)
         else:
