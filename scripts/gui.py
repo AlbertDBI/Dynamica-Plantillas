@@ -244,25 +244,47 @@ def main() -> None:
         etiquetas_contactos = {email: etiqueta for email, etiqueta in opciones_contactos}
 
         with st.expander("Añadir persona"):
-            nuevo_nombre = st.text_input("Nombre", key="nuevo_nombre")
-            nuevo_email = st.text_input("Email", key="nuevo_email")
-            nuevo_empresa = st.text_input("Empresa", key="nuevo_empresa")
+            # Inicializar campos en session_state si no existen
+            for campo_key in ["nuevo_nombre", "nuevo_email", "nuevo_empresa"]:
+                if campo_key not in st.session_state:
+                    st.session_state[campo_key] = ""
+
+            st.text_input(
+                "Nombre",
+                value=st.session_state["nuevo_nombre"],
+                key="nuevo_nombre",
+                on_change=lambda: st.session_state.update({"nuevo_nombre": st.session_state["nuevo_nombre"]}),
+            )
+            st.text_input(
+                "Email",
+                value=st.session_state["nuevo_email"],
+                key="nuevo_email",
+            )
+            st.text_input(
+                "Empresa",
+                value=st.session_state["nuevo_empresa"],
+                key="nuevo_empresa",
+            )
             if st.button("Añadir", key="btn_anadir_persona"):
-                if not nuevo_nombre or not nuevo_email or not nuevo_empresa:
+                nombre = st.session_state.get("nuevo_nombre", "").strip()
+                email = st.session_state.get("nuevo_email", "").strip()
+                empresa = st.session_state.get("nuevo_empresa", "").strip()
+                if not nombre or not email or not empresa:
                     st.error("Rellena todos los campos")
-                elif "@" not in nuevo_email:
+                elif "@" not in email:
                     st.error("Email no valido")
-                elif nuevo_email in emails_contactos:
+                elif email in emails_contactos:
                     st.error("Ya existe un contacto con ese email")
                 else:
-                    engine.crear_o_actualizar_contacto(
-                        nuevo_nombre, nuevo_email, nuevo_empresa
-                    )
-                    st.session_state["nuevo_nombre"] = ""
-                    st.session_state["nuevo_email"] = ""
-                    st.session_state["nuevo_empresa"] = ""
-                    st.success("Persona añadida")
-                    st.rerun()
+                    try:
+                        engine.crear_o_actualizar_contacto(nombre, email, empresa)
+                        st.session_state["nuevo_nombre"] = ""
+                        st.session_state["nuevo_email"] = ""
+                        st.session_state["nuevo_empresa"] = ""
+                        st.success(f"Persona añadida: {nombre}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar contacto: {e}")
 
         if opciones_contactos:
             with st.expander("Editar o eliminar persona"):
