@@ -61,6 +61,40 @@ def guardar_config(config: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Gestion de combos (plantillas de plantillas)
+# ---------------------------------------------------------------------------
+
+COMBOS_FILE_NAME = "combos.yaml"
+
+
+def ruta_combos(nombre_plantilla: str) -> Path:
+    """Devuelve la ruta al archivo combos.yaml de una plantilla."""
+    return TEMPLATES_DIR / nombre_plantilla / COMBOS_FILE_NAME
+
+
+def listar_combos(nombre_plantilla: str) -> dict[str, dict[str, list[int]]]:
+    """Carga los combos guardados para una plantilla."""
+    ruta = ruta_combos(nombre_plantilla)
+    if not ruta.exists():
+        return {}
+    with open(ruta, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def guardar_combo(
+    nombre_plantilla: str,
+    nombre_combo: str,
+    selecciones: dict[str, list[int]],
+) -> None:
+    """Guarda o actualiza un combo de selecciones para una plantilla."""
+    combos = listar_combos(nombre_plantilla)
+    combos[nombre_combo] = selecciones
+    ruta = ruta_combos(nombre_plantilla)
+    with open(ruta, "w", encoding="utf-8") as f:
+        yaml.safe_dump(combos, f, default_flow_style=False, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------
 # Gestion de plantillas
 # ---------------------------------------------------------------------------
 

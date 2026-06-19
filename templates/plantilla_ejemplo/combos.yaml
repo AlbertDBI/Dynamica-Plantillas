@@ -1,0 +1,17 @@
+combo_oferta_corta:
+  saludo:
+  - 1
+  cuerpo:
+  - 1
+  - 3
+  despedida:
+  - 1
+combo_seguimiento:
+  saludo:
+  - 3
+  cuerpo:
+  - 2
+  - 4
+  - 5
+  despedida:
+  - 2

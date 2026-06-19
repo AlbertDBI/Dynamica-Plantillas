@@ -29,6 +29,8 @@ pip install -r requirements.txt
 
 ## Uso
 
+### Modo CLI
+
 ```bash
 .venv\Scripts\Activate.ps1
 python scripts/cli.py
@@ -38,6 +40,28 @@ Sigue los pasos interactivos:
 
 1. Selecciona plantilla.
 2. Selecciona firma (o ninguna).
+
+### Modo GUI (Streamlit)
+
+```bash
+.venv\Scripts\Activate.ps1
+streamlit run scripts/gui.py
+```
+
+Se abrira automaticamente el navegador en `http://localhost:8501`.
+
+La interfaz web incluye:
+
+- Selector de plantilla y plantilla de plantilla (combo guardado).
+- Selector de firma.
+- Selector o creacion de contacto.
+- Edicion de asunto.
+- Seleccion multibloque por seccion con subir/bajar/eliminar.
+- Campo personalizado con editor Markdown.
+- Selector de adjuntos.
+- Previsualizacion en tiempo real.
+- Boton para guardar combos.
+- Boton para generar y abrir el .eml.
 3. Introduce destinatario(s), CC y CCO.
 4. Selecciona o edita el asunto.
 5. Arma cada sección con multiselección y orden.
