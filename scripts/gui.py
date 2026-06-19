@@ -619,7 +619,8 @@ def main() -> None:
             plantilla = engine.cargar_plantilla(st.session_state["plantilla_nombre"])
             firma = engine.cargar_firma(st.session_state["firma_slug"]) if st.session_state["firma_slug"] else None
 
-            primer_email = st.session_state.get("para", [None])[0]
+            para_emails = st.session_state.get("para", [])
+            primer_email = para_emails[0] if para_emails else None
             primer_contacto = contacto_por_email(primer_email) if primer_email else None
             variables = {
                 "nombre": primer_contacto["datos"].get("nombre", "") if primer_contacto else "",
@@ -627,7 +628,6 @@ def main() -> None:
                 "empresa": st.session_state.get("empresa_correo", ""),
             }
 
-            para_emails = st.session_state.get("para", [])
             cc_emails = st.session_state.get("cc", [])
             cco_emails = st.session_state.get("cco", [])
 
