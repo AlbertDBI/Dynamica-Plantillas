@@ -1,0 +1,55 @@
+Subject: Propuesta para TechCorp
+From: tu@correo.com
+To: juan.perez@techcorp.com
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============7041682926664821214=="
+
+--===============7041682926664821214==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+
+
+
+    
+    Propuesta para TechCorp
+
+
+    
+        Estimado/a Juan Perez,
+Es un placer dirigirme a ti en nombre de nuestra empresa.
+        Como comentamos, le enviamos la propuesta actualizada para TechCorp.
+Adjunto encontraras toda la informacion tecnica y el tarifario vigente.
+
+        Si tienes cualquier pregunta, no dudes en escribirme.
+Un abrazo,Tu nombre
+    
+
+
+--===============7041682926664821214==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=3D"UTF-8">
+    <title>Propuesta para TechCorp</title>
+</head>
+<body style=3D"font-family: Arial, sans-serif; color: #333;">
+    <div style=3D"max-width: 600px; margin: auto;">
+        <p>Estimado/a Juan Perez,</p>
+<p>Es un placer dirigirme a ti en nombre de nuestra empresa.</p>
+        <p>Como comentamos, le enviamos la propuesta actualizada para TechCor=
+p.</p>
+<p>Adjunto encontraras toda la informacion tecnica y el tarifario vigente.</p>
+
+        <p>Si tienes cualquier pregunta, no dudes en escribirme.</p>
+<p>Un abrazo,<br/><b>Tu nombre</b></p>
+    </div>
+</body>
+</html>
+
+--===============7041682926664821214==--
