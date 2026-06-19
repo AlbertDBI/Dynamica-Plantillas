@@ -1,0 +1,2 @@
+Este es un archivo adjunto de ejemplo.
+Sirve para comprobar que el generador de correos puede incluir archivos adjuntos en el archivo .eml.

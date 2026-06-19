@@ -1,2 +1,0 @@
-Ejemplo de archivo adjunto para pruebas.
-Este archivo no se envia realmente; solo sirve para validar que el generador incluye adjuntos en el .eml.

@@ -1,0 +1,5 @@
+remitente_default: "tu@correo.com"
+firma_default: "empresa_demo"
+output:
+  modo: "dias"
+  dias: 30

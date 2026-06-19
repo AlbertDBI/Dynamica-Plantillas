@@ -25,3 +25,7 @@ Thumbs.db
 # Variables de entorno
 .env
 .env.local
+
+# Salida generada
+output/
+
