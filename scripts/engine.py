@@ -35,6 +35,9 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 SIGNATURES_DIR = BASE_DIR / "signatures"
 SIGNATURES_ADJUNTS_DIR = SIGNATURES_DIR / "adjuntos"
 CONTACTS_DIR = BASE_DIR / "contacts"
+
+# Constante para depuracion: ruta base de firmas como Path resuelto
+_SIGNATURES_ADJUNTS_DIR_RESOLVED = SIGNATURES_ADJUNTS_DIR.resolve()
 OUTPUT_DIR = BASE_DIR / "output"
 CONFIG_FILE = BASE_DIR / "config.yaml"
 
@@ -248,6 +251,7 @@ def renderizar_firma(firma: dict[str, Any] | None, variables: dict[str, str]) ->
 
     # Detectar imagenes locales y preparar adjuntos inline
     imagenes: list[Path] = []
+    imagenes_cids: dict[Path, str] = {}
     for match in re.finditer(r'src=["\']([^"\']+)["\']', html_renderizado):
         src = match.group(1)
         if src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
@@ -255,25 +259,61 @@ def renderizar_firma(firma: dict[str, Any] | None, variables: dict[str, str]) ->
         ruta_imagen = Path(src)
         if not ruta_imagen.is_absolute():
             # Buscar en signatures/adjuntos o en la raiz del proyecto
+            # La src puede ser relativa a la firma (adjuntos/logo.png) o relativa al proyecto
             candidatos = [
+                SIGNATURES_ADJUNTS_DIR / Path(src).name,
                 SIGNATURES_ADJUNTS_DIR / src,
                 BASE_DIR / src,
             ]
+            encontrado = False
             for candidato in candidatos:
                 if candidato.exists():
                     ruta_imagen = candidato
+                    encontrado = True
                     break
+            if not encontrado:
+                continue
         if ruta_imagen.exists() and ruta_imagen not in imagenes:
             imagenes.append(ruta_imagen)
+            imagenes_cids[ruta_imagen] = f"img_{uuid.uuid4().hex[:8]}"
 
-    # Reemplazar src por cid correspondiente
+    # Reemplazar cualquier referencia a la imagen en el HTML por su cid
     html_final = html_renderizado
-    for imagen in imagenes:
-        cid = f"img_{uuid.uuid4().hex[:8]}"
-        html_final = html_final.replace(f'src="{imagen.name}"', f'src="cid:{cid}"')
-        html_final = html_final.replace(f"src='{imagen.name}'", f'src="cid:{cid}"')
-        html_final = html_final.replace(f'src="{str(imagen)}"', f'src="cid:{cid}"')
-        html_final = html_final.replace(f"src='{str(imagen)}'", f'src="cid:{cid}"')
+    for imagen, cid in imagenes_cids.items():
+        src_relativa = None
+        # Buscar la src original que apunto a esta imagen
+        for match in re.finditer(r'src=["\']([^"\']+)["\']', html_renderizado):
+            candidate_src = match.group(1)
+            if candidate_src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
+                continue
+            candidate_path = Path(candidate_src)
+            if not candidate_path.is_absolute():
+                if (SIGNATURES_ADJUNTS_DIR / candidate_src).resolve() == imagen.resolve():
+                    src_relativa = candidate_src
+                    break
+                if (SIGNATURES_ADJUNTS_DIR / candidate_path.name).resolve() == imagen.resolve():
+                    src_relativa = candidate_src
+                    break
+                if (BASE_DIR / candidate_src).resolve() == imagen.resolve():
+                    src_relativa = candidate_src
+                    break
+
+        src_variants = {
+            f'src="{imagen.name}"',
+            f"src='{imagen.name}'",
+            f'src="{str(imagen)}"',
+            f"src='{str(imagen)}'",
+        }
+        if src_relativa:
+            src_variants.add(f'src="{src_relativa}"')
+            src_variants.add(f"src='{src_relativa}'")
+            # Escapar espacios para HTML
+            src_escaped = src_relativa.replace(" ", "%20")
+            src_variants.add(f'src="{src_escaped}"')
+            src_variants.add(f"src='{src_escaped}'")
+
+        for variant in src_variants:
+            html_final = html_final.replace(variant, f'src="cid:{cid}"')
 
     return html_final, imagenes
 
@@ -490,6 +530,24 @@ def generar_eml(
     """Genera el archivo .eml multipart con HTML, texto plano y adjuntos."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Generar cids para imagenes inline y aplicarlos al HTML antes de crear el mensaje
+    cids_generados: dict[Path, str] = {}
+    for imagen in imagenes_inline:
+        cid = f"img_{uuid.uuid4().hex[:8]}"
+        cids_generados[imagen] = cid
+        html_final = html_final.replace(str(imagen), f"cid:{cid}")
+        html_final = html_final.replace(imagen.name, f"cid:{cid}")
+
+    # Sustituir cids genericos del renderizado por los generados aqui
+    cids_en_html = re.findall(r'cid:img_[a-f0-9]+', html_final)
+    for i, imagen in enumerate(imagenes_inline):
+        if i < len(cids_en_html):
+            html_final = html_final.replace(cids_en_html[i], f"cid:{cids_generados[imagen]}")
+
+    # Texto plano fallback
+    texto_plano = re.sub(r"<[^>]*>", " ", html_final)
+    texto_plano = re.sub(r"\s+", " ", texto_plano).strip()
+
     msg = EmailMessage(policy=EmailPolicy())
     msg["Subject"] = asunto
     msg["From"] = from_email
@@ -508,17 +566,13 @@ def generar_eml(
     if reply_to:
         msg["Reply-To"] = reply_to
 
-    # Texto plano fallback
-    texto_plano = re.sub(r"<[^>]*>", " ", html_final)
-    texto_plano = re.sub(r"\s+", " ", texto_plano).strip()
+    # Contenido alternativo: texto plano + HTML
     msg.set_content(texto_plano)
     msg.add_alternative(html_final, subtype="html")
 
     # Adjuntos inline (imagenes de firma)
-    cids: dict[Path, str] = {}
     for imagen in imagenes_inline:
-        cid = f"img_{uuid.uuid4().hex[:8]}"
-        cids[imagen] = cid
+        cid = cids_generados[imagen]
         tipo_main, tipo_sub = _tipo_mime(imagen)
         with open(imagen, "rb") as f:
             datos = f.read()
@@ -530,16 +584,6 @@ def generar_eml(
             filename=imagen.name,
             disposition="inline",
         )
-
-    # Reemplazar referencias cid en el HTML si aun no se hizo
-    for imagen, cid in cids.items():
-        html_final = html_final.replace(str(imagen), f"cid:{cid}")
-        html_final = html_final.replace(imagen.name, f"cid:{cid}")
-
-    # Si se modificó el HTML, actualizar la parte alternativa
-    if cids:
-        msg.set_content(texto_plano)
-        msg.add_alternative(html_final, subtype="html")
 
     # Adjuntos normales
     for adjunto in adjuntos:
