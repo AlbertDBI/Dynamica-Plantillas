@@ -244,31 +244,18 @@ def main() -> None:
         etiquetas_contactos = {email: etiqueta for email, etiqueta in opciones_contactos}
 
         with st.expander("Añadir persona"):
-            # Inicializar campos en session_state si no existen
-            for campo_key in ["nuevo_nombre", "nuevo_email", "nuevo_empresa"]:
-                if campo_key not in st.session_state:
-                    st.session_state[campo_key] = ""
+            version = st.session_state.get("form_contacto_version", 0)
+            form_key = f"form_nuevo_contacto_{version}"
+            with st.form(form_key):
+                st.text_input("Nombre", key=f"nuevo_nombre_{version}")
+                st.text_input("Email", key=f"nuevo_email_{version}")
+                st.text_input("Empresa", key=f"nuevo_empresa_{version}")
+                submit = st.form_submit_button("Añadir")
 
-            st.text_input(
-                "Nombre",
-                value=st.session_state["nuevo_nombre"],
-                key="nuevo_nombre",
-                on_change=lambda: st.session_state.update({"nuevo_nombre": st.session_state["nuevo_nombre"]}),
-            )
-            st.text_input(
-                "Email",
-                value=st.session_state["nuevo_email"],
-                key="nuevo_email",
-            )
-            st.text_input(
-                "Empresa",
-                value=st.session_state["nuevo_empresa"],
-                key="nuevo_empresa",
-            )
-            if st.button("Añadir", key="btn_anadir_persona"):
-                nombre = st.session_state.get("nuevo_nombre", "").strip()
-                email = st.session_state.get("nuevo_email", "").strip()
-                empresa = st.session_state.get("nuevo_empresa", "").strip()
+            if submit:
+                nombre = st.session_state.get(f"nuevo_nombre_{version}", "").strip()
+                email = st.session_state.get(f"nuevo_email_{version}", "").strip()
+                empresa = st.session_state.get(f"nuevo_empresa_{version}", "").strip()
                 if not nombre or not email or not empresa:
                     st.error("Rellena todos los campos")
                 elif "@" not in email:
@@ -278,9 +265,7 @@ def main() -> None:
                 else:
                     try:
                         engine.crear_o_actualizar_contacto(nombre, email, empresa)
-                        st.session_state["nuevo_nombre"] = ""
-                        st.session_state["nuevo_email"] = ""
-                        st.session_state["nuevo_empresa"] = ""
+                        st.session_state["form_contacto_version"] = version + 1
                         st.success(f"Persona añadida: {nombre}")
                         st.rerun()
                     except Exception as e:
