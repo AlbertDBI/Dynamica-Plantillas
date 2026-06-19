@@ -258,53 +258,42 @@ def main() -> None:
                     engine.crear_o_actualizar_contacto(
                         nuevo_nombre, nuevo_email, nuevo_empresa
                     )
+                    st.session_state["nuevo_nombre"] = ""
+                    st.session_state["nuevo_email"] = ""
+                    st.session_state["nuevo_empresa"] = ""
                     st.success("Persona añadida")
                     st.rerun()
 
         if opciones_contactos:
-            st.markdown("**Contactos existentes**")
-            for email, etiqueta in opciones_contactos:
-                c = engine.cargar_contacto_por_email(email)
-                if not c:
-                    continue
-                col_c1, col_c2, col_c3 = st.columns([4, 1, 1])
-                with col_c1:
-                    st.markdown(f"- {etiqueta}")
-                with col_c2:
-                    if st.button("✏️", key=f"editar_{email}"):
-                        st.session_state[f"editando_{email}"] = True
-                with col_c3:
-                    if st.button("🗑️", key=f"eliminar_{email}"):
-                        engine.eliminar_contacto(c["slug"])
-                        # Limpiar de destinatarios si estaba
-                        for campo in ["para", "cc", "cco"]:
-                            st.session_state[campo] = [
-                                x for x in st.session_state.get(campo, []) if x != email
-                            ]
-                        st.success("Persona eliminada")
-                        st.rerun()
-
-                if st.session_state.get(f"editando_{email}", False):
-                    with st.container(border=True):
+            with st.expander("Editar o eliminar persona"):
+                email_editar = st.selectbox(
+                    "Selecciona contacto",
+                    options=[email for email, _ in opciones_contactos],
+                    format_func=lambda x: etiquetas_contactos.get(x, x),
+                    key="persona_editar_select",
+                )
+                if email_editar:
+                    c = engine.cargar_contacto_por_email(email_editar)
+                    if c:
                         datos = c["datos"]
                         edit_nombre = st.text_input(
                             "Nombre",
                             value=datos.get("nombre", ""),
-                            key=f"edit_nombre_{email}",
+                            key="edit_nombre",
                         )
                         edit_email = st.text_input(
                             "Email",
                             value=datos.get("email", ""),
-                            key=f"edit_email_{email}",
+                            key="edit_email",
                         )
                         edit_empresa = st.text_input(
                             "Empresa",
                             value=datos.get("empresa", ""),
-                            key=f"edit_empresa_{email}",
+                            key="edit_empresa",
                         )
                         col_g1, col_g2 = st.columns(2)
                         with col_g1:
-                            if st.button("Guardar", key=f"guardar_{email}"):
+                            if st.button("Guardar cambios", key="guardar_persona"):
                                 if not edit_nombre or not edit_email or not edit_empresa:
                                     st.error("Rellena todos los campos")
                                 elif "@" not in edit_email:
@@ -320,18 +309,26 @@ def main() -> None:
                                         c.get("historial", ""),
                                     )
                                     # Actualizar destinatarios si el email cambio
-                                    if edit_email != email:
+                                    if edit_email != email_editar:
                                         for campo in ["para", "cc", "cco"]:
                                             st.session_state[campo] = [
-                                                edit_email if x == email else x
+                                                edit_email if x == email_editar else x
                                                 for x in st.session_state.get(campo, [])
                                             ]
-                                    st.session_state[f"editando_{email}"] = False
                                     st.success("Persona actualizada")
                                     st.rerun()
                         with col_g2:
-                            if st.button("Cancelar", key=f"cancelar_{email}"):
-                                st.session_state[f"editando_{email}"] = False
+                            if st.button("Eliminar", key="eliminar_persona"):
+                                engine.eliminar_contacto(c["slug"])
+                                # Limpiar de destinatarios si estaba
+                                for campo in ["para", "cc", "cco"]:
+                                    st.session_state[campo] = [
+                                        x for x in st.session_state.get(campo, []) if x != email_editar
+                                    ]
+                                # Limpiar empresa si el eliminado era el primer destinatario
+                                if st.session_state.get("para") and st.session_state["para"][0] == email_editar:
+                                    st.session_state["empresa_correo"] = ""
+                                st.success("Persona eliminada")
                                 st.rerun()
         else:
             st.info("No hay contactos. Añade uno arriba.")
@@ -372,17 +369,17 @@ def main() -> None:
         st.session_state["cco"] = cco
 
         # Actualizar empresa del correo segun primer destinatario de Para
-        if para:
-            c = contacto_por_email(para[0])
-            empresa_sugerida = c["datos"].get("empresa", "") if c else ""
-        else:
-            empresa_sugerida = ""
-
-        # Solo actualizar automaticamente si no hay empresa manual guardada
-        # y el primer destinatario cambio
-        session_empresa = st.session_state.get("empresa_correo", "")
-        if not session_empresa and empresa_sugerida:
-            st.session_state["empresa_correo"] = empresa_sugerida
+        # Se usa session_state para detectar si el primer destinatario cambio
+        primer_para_anterior = st.session_state.get("_primer_para_anterior", "")
+        primer_para_actual = para[0] if para else ""
+        if primer_para_actual != primer_para_anterior:
+            st.session_state["_primer_para_anterior"] = primer_para_actual
+            if primer_para_actual:
+                c = contacto_por_email(primer_para_actual)
+                if c:
+                    st.session_state["empresa_correo"] = c["datos"].get("empresa", "")
+            else:
+                st.session_state["empresa_correo"] = ""
 
         st.divider()
         st.subheader("4. Empresa para este correo")
