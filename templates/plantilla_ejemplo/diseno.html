@@ -5,40 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Correo generado</title>
 </head>
-<body style="margin: 0; padding: 20px; font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #333333; background-color: #f4f4f4;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #2d2d2d; background-color: #f5f7fa;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
         <tr>
-            <td align="center">
-                <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+            <td align="center" style="padding: 30px 20px;">
+                <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="max-width: 620px; background-color: #ffffff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); overflow: hidden;">
+                    <!-- Cabecera -->
                     <tr>
-                        <td style="padding: 30px 40px;">
+                        <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%); padding: 32px 40px; text-align: left;">
+                            <p style="margin: 0; color: #ffffff; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.85;">Comunicaci<small></small>n oficial</p>
+                            <h1 style="margin: 6px 0 0 0; color: #ffffff; font-size: 24px; font-weight: 600;">{{empresa}}</h1>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding: 36px 40px;">
                             <!-- Saludo -->
-                            <div style="margin-bottom: 20px;">
+                            <div style="margin-bottom: 24px; color: #1e3a5f; font-size: 17px; font-weight: 600;">
                                 {{saludo}}
                             </div>
 
                             <!-- Cuerpo -->
-                            <div style="text-align: justify; margin-bottom: 20px;">
+                            <div style="text-align: left; margin-bottom: 24px;">
                                 {{cuerpo}}
                             </div>
 
                             <!-- Campo personalizado -->
-                            <div style="background-color: #f0f7ff; border-left: 4px solid #007acc; padding: 15px; margin-bottom: 20px;">
+                            <div style="background-color: #f0f6ff; border-left: 4px solid #2c5282; padding: 18px 20px; margin-bottom: 24px; border-radius: 0 6px 6px 0;">
                                 {{personalizado}}
                             </div>
 
                             <!-- Despedida -->
-                            <div style="margin-bottom: 30px;">
+                            <div style="margin-bottom: 28px;">
                                 {{despedida}}
                             </div>
 
                             <!-- Firma -->
-                            <div style="border-top: 1px solid #dddddd; padding-top: 20px; margin-top: 20px;">
+                            <div style="border-top: 1px solid #e2e8f0; padding-top: 24px; margin-top: 28px; color: #4a5568; font-size: 14px;">
                                 {{firma}}
                             </div>
 
                             <!-- Texto obligatorio -->
-                            <div style="font-size: 11px; color: #666666; text-align: justify; margin-top: 30px; padding-top: 15px; border-top: 1px solid #eeeeee;">
+                            <div style="font-size: 11px; color: #718096; text-align: justify; margin-top: 30px; padding-top: 18px; border-top: 1px solid #edf2f7; line-height: 1.5;">
                                 {{texto_obligatorio}}
                             </div>
                         </td>

@@ -418,6 +418,10 @@ def ensamblar_html(
         if slot.startswith("personalizado") and not slot.endswith("_obligatorio"):
             html = html.replace(f"{{{{{slot}}}}}", "")
 
+    # Renderizar cualquier variable adicional del contacto que aparezca en el diseno
+    plantilla_jinja = jinja2.Template(html)
+    html = plantilla_jinja.render(**variables)
+
     return html
 
 

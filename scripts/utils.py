@@ -37,6 +37,20 @@ def normalizar_slug(nombre: str) -> str:
     return slug
 
 
+def carpeta_temporal() -> Path:
+    """Devuelve una carpeta temporal del sistema adecuada para previews."""
+    return Path(os.environ.get("TEMP", os.environ.get("TMP", "/tmp"))) / "dynamica_previews"
+
+
+def guardar_preview_temporal(html: str, nombre_base: str) -> Path:
+    """Guarda el HTML de previsualizacion en una carpeta temporal y devuelve la ruta."""
+    carpeta = carpeta_temporal()
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / f"{nombre_base}_{timestamp_para_archivo()}.html"
+    ruta.write_text(html, encoding="utf-8")
+    return ruta
+
+
 def limpiar_output(carpeta: Path, modo: str, dias: int = 30) -> None:
     """
     Aplica la politica de limpieza de la carpeta output.

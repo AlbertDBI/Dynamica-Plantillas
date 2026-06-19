@@ -417,15 +417,21 @@ def main() -> None:
         for a in adjuntos_seleccionados:
             print(f"  - {a.name}")
 
-    # 9. Previsualizacion
-    preview_path = engine.OUTPUT_DIR / f"preview_{plantilla['nombre']}_{utils.timestamp_para_archivo()}.html"
-    preview_path.write_text(html_final, encoding="utf-8")
-    print(f"\n[PREVIEW] Generado: {preview_path}")
+    # 9. Previsualizacion en HTML temporal
+    preview_path = utils.guardar_preview_temporal(
+        html_final, f"preview_{plantilla['nombre']}"
+    )
+    print(f"\n[PREVIEW] Abriendo previsualizacion temporal: {preview_path}")
     utils.abrir_archivo(preview_path)
 
     confirmar = input("\n¿Generar correo .eml? (s/n): ").strip().lower()
     if confirmar != "s":
         print("Generacion cancelada.")
+        # Borrar preview temporal si se cancela
+        try:
+            preview_path.unlink(missing_ok=True)
+        except Exception:
+            pass
         sys.exit(0)
 
     # 10. Generar .eml
@@ -454,6 +460,16 @@ def main() -> None:
 
     # 12. Abrir .eml
     utils.abrir_archivo(ruta_eml)
+
+    # 13. Limpiar preview temporal tras generar
+    try:
+        preview_path.unlink(missing_ok=True)
+        # Si la carpeta temporal queda vacia, intentar borrarla
+        carpeta_preview = preview_path.parent
+        if carpeta_preview.exists() and not any(carpeta_preview.iterdir()):
+            carpeta_preview.rmdir()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
