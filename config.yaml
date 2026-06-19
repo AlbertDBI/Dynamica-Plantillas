@@ -1,5 +1,7 @@
 remitente_default: "tu@correo.com"
 firma_default: "empresa_demo"
+plantilla_default: "plantilla_ejemplo"
+combo_default: ""
 output:
   modo: "dias"
   dias: 30

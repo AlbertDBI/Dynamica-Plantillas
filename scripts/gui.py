@@ -27,12 +27,42 @@ st.set_page_config(
 )
 
 
+THEME_CSS = {
+    "Claro": """
+        html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
+            background-color: #ffffff !important;
+            color: #1a1a1a !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #f7f7f7 !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, label, span {
+            color: #1a1a1a !important;
+        }
+    """,
+    "Oscuro": """
+        html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"] {
+            background-color: #0e1117 !important;
+            color: #fafafa !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #1c2128 !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, label, span {
+            color: #fafafa !important;
+        }
+    """,
+    "Sistema": "",
+}
+
+
 def inicializar_estado() -> None:
     """Inicializa el estado de sesion de Streamlit."""
+    config = engine.cargar_config()
     defaults = {
         "plantilla_nombre": None,
         "combo_nombre": "",
-        "firma_slug": "",
+        "firma_slug": config.get("firma_default", ""),
         "para": [],
         "cc": [],
         "cco": [],
@@ -43,7 +73,9 @@ def inicializar_estado() -> None:
         "adjuntos_seleccionados": [],
         "preview_css": "",
         "html_preview": "",
-        "refresh": False,
+        "tema": "Sistema",
+        "ultimo_eml_generado": "",
+        "_slot_orden_activo": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -57,6 +89,7 @@ def resetear_selecciones() -> None:
     st.session_state["asunto"] = ""
     st.session_state["personalizado"] = ""
     st.session_state["adjuntos_seleccionados"] = []
+    st.session_state["_slot_orden_activo"] = {}
 
 
 def contactos_opciones() -> list[tuple[str, str]]:
@@ -79,61 +112,54 @@ def contacto_por_email(email: str) -> dict[str, Any] | None:
     return engine.cargar_contacto_por_email(email)
 
 
-def actualizar_empresa_correo() -> None:
-    """Actualiza 'empresa_correo' a partir del primer destinatario de Para."""
-    para = st.session_state.get("para", [])
-    empresa_actual = st.session_state.get("empresa_correo", "")
-    if para:
-        c = contacto_por_email(para[0])
-        if c and not empresa_actual:
-            st.session_state["empresa_correo"] = c["datos"].get("empresa", "")
-    else:
-        st.session_state["empresa_correo"] = ""
-
-
 def listar_opciones_con_indices(opciones: list[str]) -> list[tuple[int, str]]:
     """Devuelve lista de opciones con indice 1-based."""
     return [(i + 1, op) for i, op in enumerate(opciones)]
 
 
-def aplicar_combo() -> None:
+def aplicar_combo(nombre_plantilla: str, combo_nombre: str) -> None:
     """Aplica un combo guardado al estado actual."""
-    nombre_plantilla = st.session_state["plantilla_nombre"]
-    combo_nombre = st.session_state["combo_nombre"]
     if not combo_nombre:
         resetear_selecciones()
         return
     combos = engine.listar_combos(nombre_plantilla)
     if combo_nombre in combos:
+        combo = combos[combo_nombre]
         st.session_state["selecciones"] = {
-            k: [int(v) for v in vals] for k, vals in combos[combo_nombre].items()
+            k: [int(v) for v in vals] for k, vals in combo.items() if k not in ("asunto", "personalizado", "adjuntos_seleccionados")
         }
-        st.toast(f"Combo '{combo_nombre}' cargado")
+        st.session_state["asunto"] = combo.get("asunto", "")
+        st.session_state["personalizado"] = combo.get("personalizado", "")
+        st.session_state["adjuntos_seleccionados"] = combo.get("adjuntos_seleccionados", [])
+        st.toast(f"Combinacion '{combo_nombre}' cargada")
     else:
-        st.toast(f"Combo '{combo_nombre}' no encontrado")
+        st.toast(f"Combinacion '{combo_nombre}' no encontrada")
 
 
 def guardar_combo_ui(plantilla_nombre: str) -> None:
-    """Muestra dialogo para guardar el combo actual."""
-    with st.popover("Guardar plantilla de plantilla"):
-        nombre = st.text_input("Nombre del combo", placeholder="oferta_corta")
+    """Muestra dialogo para guardar la combinacion actual."""
+    selecciones = st.session_state["selecciones"]
+    payload: dict[str, Any] = {}
+    payload.update({k: [int(v) for v in vals] for k, vals in selecciones.items()})
+    payload["asunto"] = st.session_state.get("asunto", "")
+    payload["personalizado"] = st.session_state.get("personalizado", "")
+    payload["adjuntos_seleccionados"] = st.session_state.get("adjuntos_seleccionados", [])
+
+    with st.popover("Guardar combinacion"):
+        nombre = st.text_input("Nombre de la combinacion", placeholder="oferta_corta")
         if st.button("Guardar", use_container_width=True):
             if not nombre:
-                st.error("Escribe un nombre para el combo")
+                st.error("Escribe un nombre para la combinacion")
                 return
             combos = engine.listar_combos(plantilla_nombre)
             if nombre in combos:
-                st.warning(f"El combo '{nombre}' ya existe. Se sobrescribira.")
+                st.warning(f"La combinacion '{nombre}' ya existe. Se sobrescribira.")
                 confirmar = st.checkbox("Confirmar sobrescritura")
                 if not confirmar:
                     return
-            engine.guardar_combo(
-                plantilla_nombre,
-                nombre,
-                st.session_state["selecciones"],
-            )
+            engine.guardar_combo(plantilla_nombre, nombre, payload)
             st.session_state["combo_nombre"] = nombre
-            st.success(f"Combo '{nombre}' guardado")
+            st.success(f"Combinacion '{nombre}' guardada")
             st.rerun()
 
 
@@ -142,7 +168,7 @@ def renderizar_preview(
     firma: dict[str, Any] | None,
     variables: dict[str, str],
 ) -> str:
-    """Renderiza el HTML de previsualizacion y lo guarda temporalmente."""
+    """Renderiza el HTML de previsualizacion."""
     firma_html, _ = engine.renderizar_firma(firma, variables)
     html = engine.ensamblar_html(
         plantilla=plantilla,
@@ -159,36 +185,115 @@ def renderizar_preview(
     return html
 
 
+def mostrar_estado_validacion(html: str) -> tuple[bool, list[str], list[str]]:
+    """Muestra caja de estado en la preview y devuelve (ok, obligatorios, pendientes)."""
+    obligatorios, pendientes = engine.detectar_variables_pendientes(html)
+    para = st.session_state.get("para", [])
+    asunto = st.session_state.get("asunto", "")
+    ultimo = st.session_state.get("ultimo_eml_generado", "")
+
+    todo_ok = not obligatorios and para and asunto
+
+    with st.container(border=True):
+        if ultimo:
+            st.success(f"Correo generado en esta sesion: {ultimo}")
+        if not para:
+            st.warning("Falta al menos un destinatario en 'Para'")
+        if not asunto:
+            st.warning("Falta el asunto")
+        if obligatorios:
+            st.error(f"Campos obligatorios sin rellenar: {', '.join(obligatorios)}")
+        if pendientes:
+            st.info(f"Campos pendientes (no obligatorios): {', '.join(pendientes)}")
+        if todo_ok:
+            st.success("Listo para generar el correo")
+
+    return todo_ok, obligatorios, pendientes
+
+
+def panel_configuracion() -> None:
+    """Muestra panel de configuracion en la barra lateral."""
+    config = engine.cargar_config()
+
+    with st.sidebar.expander("⚙️ Configuracion", expanded=False):
+        st.markdown("Valores por defecto")
+
+        plantillas = engine.listar_plantillas()
+        nombres_plantillas = [p["nombre"] for p in plantillas]
+        plantilla_default = st.selectbox(
+            "Plantilla por defecto",
+            options=[""] + nombres_plantillas,
+            index=([""] + nombres_plantillas).index(config.get("plantilla_default", ""))
+            if config.get("plantilla_default", "") in ([""] + nombres_plantillas)
+            else 0,
+            key="cfg_plantilla_default",
+        )
+
+        firmas = engine.listar_firmas()
+        firma_opciones = [""] + [f["slug"] for f in firmas]
+        firma_default = st.selectbox(
+            "Firma por defecto",
+            options=firma_opciones,
+            index=firma_opciones.index(config.get("firma_default", ""))
+            if config.get("firma_default", "") in firma_opciones
+            else 0,
+            key="cfg_firma_default",
+        )
+
+        remitente_default = st.text_input(
+            "Remitente por defecto",
+            value=config.get("remitente_default", "tu@correo.com"),
+            key="cfg_remitente_default",
+        )
+
+        plantilla_sel = plantilla_default or (nombres_plantillas[0] if nombres_plantillas else "")
+        combos = engine.listar_combos(plantilla_sel) if plantilla_sel else {}
+        combo_opciones = [""] + list(combos.keys())
+        combo_default = st.selectbox(
+            "Combinacion por defecto",
+            options=combo_opciones,
+            index=combo_opciones.index(config.get("combo_default", ""))
+            if config.get("combo_default", "") in combo_opciones
+            else 0,
+            key="cfg_combo_default",
+        )
+
+        if st.button("Guardar configuracion", use_container_width=True):
+            config["plantilla_default"] = plantilla_default or None
+            config["firma_default"] = firma_default or None
+            config["combo_default"] = combo_default or ""
+            config["remitente_default"] = remitente_default.strip() or "tu@correo.com"
+            engine.guardar_config(config)
+            st.success("Configuracion guardada")
+
+
+def aplicar_config_inicial(config: dict[str, Any], plantillas: list[dict[str, str]]) -> None:
+    """Carga plantilla/combo por defecto si el estado aun no esta fijado."""
+    nombres_plantillas = [p["nombre"] for p in plantillas]
+    if not nombres_plantillas:
+        return
+
+    if st.session_state["plantilla_nombre"] is None:
+        plantilla_default = config.get("plantilla_default")
+        if plantilla_default and plantilla_default in nombres_plantillas:
+            st.session_state["plantilla_nombre"] = plantilla_default
+        else:
+            st.session_state["plantilla_nombre"] = nombres_plantillas[0]
+
+        # Aplicar combo por defecto si coincide con la plantilla cargada
+        combo_default = config.get("combo_default", "")
+        if combo_default:
+            combos = engine.listar_combos(st.session_state["plantilla_nombre"])
+            if combo_default in combos:
+                st.session_state["combo_nombre"] = combo_default
+                aplicar_combo(st.session_state["plantilla_nombre"], combo_default)
+
+    if not st.session_state.get("firma_slug"):
+        st.session_state["firma_slug"] = config.get("firma_default", "")
+
+
 def main() -> None:
     inicializar_estado()
-
-    # Tema
-    tema = st.sidebar.radio("Tema", ["Sistema", "Claro", "Oscuro"], horizontal=True)
-    if tema == "Claro":
-        st.markdown(
-            """
-            <script>
-                const doc = window.parent.document;
-                doc.querySelector('[data-testid="stAppViewContainer"]').classList.remove('dark');
-                doc.querySelector('[data-testid="stAppViewContainer"]').classList.add('light');
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
-    elif tema == "Oscuro":
-        st.markdown(
-            """
-            <script>
-                const doc = window.parent.document;
-                doc.querySelector('[data-testid="stAppViewContainer"]').classList.remove('light');
-                doc.querySelector('[data-testid="stAppViewContainer"]').classList.add('dark');
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.title("📧 Dynamica Plantillas")
-    st.markdown("Generador determinista de correos electrónicos")
 
     # Cargar config y plantillas
     config = engine.cargar_config()
@@ -197,12 +302,33 @@ def main() -> None:
         st.error("No se encontraron plantillas. Crea una carpeta en templates/ con diseno.html y campos.md")
         return
 
+    aplicar_config_inicial(config, plantillas)
+
     nombres_plantillas = [p["nombre"] for p in plantillas]
+
+    # Tema en sidebar
+    st.sidebar.markdown("### Apariencia")
+    tema = st.sidebar.radio(
+        "Tema",
+        ["Sistema", "Claro", "Oscuro"],
+        horizontal=True,
+        index=["Sistema", "Claro", "Oscuro"].index(st.session_state.get("tema", "Sistema")),
+        key="tema_select",
+    )
+    st.session_state["tema"] = tema
+    css_tema = THEME_CSS.get(tema, "")
+    if css_tema:
+        st.markdown(f"<style>{css_tema}</style>", unsafe_allow_html=True)
+
+    panel_configuracion()
+
+    st.title("📧 Dynamica Plantillas")
+    st.markdown("Generador determinista de correos electronicos")
 
     col_principal, col_preview = st.columns([2, 3])
 
     with col_principal:
-        st.subheader("1. Plantilla y combo")
+        st.subheader("1. Plantilla y combinacion")
 
         plantilla_nombre = st.selectbox(
             "Plantilla",
@@ -224,7 +350,7 @@ def main() -> None:
         combos = engine.listar_combos(plantilla_nombre)
         combo_opciones = [""] + list(combos.keys())
         combo_nombre = st.selectbox(
-            "Plantilla de plantilla (combo)",
+            "Combinacion",
             combo_opciones,
             index=combo_opciones.index(st.session_state["combo_nombre"])
             if st.session_state["combo_nombre"] in combo_opciones
@@ -233,7 +359,7 @@ def main() -> None:
         )
         if combo_nombre != st.session_state["combo_nombre"]:
             st.session_state["combo_nombre"] = combo_nombre
-            aplicar_combo()
+            aplicar_combo(plantilla_nombre, combo_nombre)
             st.rerun()
 
         st.divider()
@@ -243,14 +369,14 @@ def main() -> None:
         emails_contactos = [email for email, _ in opciones_contactos]
         etiquetas_contactos = {email: etiqueta for email, etiqueta in opciones_contactos}
 
-        with st.expander("Añadir persona"):
+        with st.expander("Anadir persona"):
             version = st.session_state.get("form_contacto_version", 0)
             form_key = f"form_nuevo_contacto_{version}"
             with st.form(form_key):
                 st.text_input("Nombre", key=f"nuevo_nombre_{version}")
                 st.text_input("Email", key=f"nuevo_email_{version}")
                 st.text_input("Empresa", key=f"nuevo_empresa_{version}")
-                submit = st.form_submit_button("Añadir")
+                submit = st.form_submit_button("Anadir")
 
             if submit:
                 nombre = st.session_state.get(f"nuevo_nombre_{version}", "").strip()
@@ -266,7 +392,7 @@ def main() -> None:
                     try:
                         engine.crear_o_actualizar_contacto(nombre, email, empresa)
                         st.session_state["form_contacto_version"] = version + 1
-                        st.success(f"Persona añadida: {nombre}")
+                        st.success(f"Persona anadida: {nombre}")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al guardar contacto: {e}")
@@ -338,7 +464,7 @@ def main() -> None:
                                 st.success("Persona eliminada")
                                 st.rerun()
         else:
-            st.info("No hay contactos. Añade uno arriba.")
+            st.info("No hay contactos. Anade uno arriba.")
 
         st.divider()
         st.subheader("3. Destinatarios")
@@ -376,7 +502,6 @@ def main() -> None:
         st.session_state["cco"] = cco
 
         # Actualizar empresa del correo segun primer destinatario de Para
-        # Se usa session_state para detectar si el primer destinatario cambio
         primer_para_anterior = st.session_state.get("_primer_para_anterior", "")
         primer_para_actual = para[0] if para else ""
         if primer_para_actual != primer_para_anterior:
@@ -410,20 +535,26 @@ def main() -> None:
         asuntos_renderizados = [
             engine.jinja2.Template(a).render(**variables_asunto) for a in asuntos
         ]
-        asunto_opciones = ["Personalizado"] + asuntos_renderizados
-        asunto_sel = st.selectbox("Asunto base", asunto_opciones, key="asunto_base")
-        if asunto_sel == "Personalizado":
-            asunto_valor = st.text_input(
-                "Asunto",
-                value=st.session_state["asunto"],
-                key="asunto_input",
-            )
-        else:
-            asunto_valor = st.text_input(
-                "Asunto editable",
-                value=asunto_sel if not st.session_state["asunto"] else st.session_state["asunto"],
-                key="asunto_input",
-            )
+
+        asunto_sel = st.selectbox(
+            "Asunto base",
+            asuntos_renderizados,
+            index=asuntos_renderizados.index(st.session_state["asunto"])
+            if st.session_state["asunto"] in asuntos_renderizados
+            else 0,
+            key="asunto_base",
+        )
+
+        # Detectar si el usuario acaba de cambiar el asunto base
+        if st.session_state.get("_asunto_base_anterior") != asunto_sel:
+            st.session_state["asunto"] = asunto_sel
+            st.session_state["_asunto_base_anterior"] = asunto_sel
+
+        asunto_valor = st.text_input(
+            "Asunto editable",
+            value=st.session_state.get("asunto", ""),
+            key="asunto_input",
+        )
         st.session_state["asunto"] = asunto_valor
 
         st.divider()
@@ -456,6 +587,7 @@ def main() -> None:
             st.markdown(f"**{slot.capitalize()}**")
             opciones = listar_opciones_con_indices(plantilla["campos"][slot])
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
+            activo = st.session_state.get("_slot_orden_activo", {}).get(slot)
 
             col1, col2 = st.columns([3, 1])
             with col1:
@@ -468,16 +600,47 @@ def main() -> None:
                 )
             with col2:
                 st.caption("Orden")
-                if st.button("⬆️", key=f"up_{slot}"):
-                    if len(seleccionados_nuevos) > 1:
-                        st.session_state["selecciones"][slot] = seleccionados_nuevos[-1:] + seleccionados_nuevos[:-1]
-                        st.rerun()
-                if st.button("⬇️", key=f"down_{slot}"):
-                    if len(seleccionados_nuevos) > 1:
-                        st.session_state["selecciones"][slot] = seleccionados_nuevos[1:] + seleccionados_nuevos[:1]
-                        st.rerun()
+                # Seleccionar cual elemento mover
+                opciones_activas = [
+                    (idx, texto) for idx, texto in opciones if idx in seleccionados_nuevos
+                ]
+                if opciones_activas:
+                    nombres_opciones = {idx: texto for idx, texto in opciones_activas}
+                    activo = st.selectbox(
+                        "Mover",
+                        options=[idx for idx, _ in opciones_activas],
+                        format_func=lambda x: nombres_opciones[x][:40],
+                        index=0,
+                        key=f"orden_activo_{slot}",
+                        label_visibility="collapsed",
+                    )
+                    st.session_state["_slot_orden_activo"][slot] = activo
+                    col_up, col_down = st.columns(2)
+                    with col_up:
+                        if st.button("⬆️", key=f"up_{slot}"):
+                            if activo in seleccionados_nuevos:
+                                idx_pos = seleccionados_nuevos.index(activo)
+                                if idx_pos > 0:
+                                    nueva = list(seleccionados_nuevos)
+                                    nueva[idx_pos - 1], nueva[idx_pos] = nueva[idx_pos], nueva[idx_pos - 1]
+                                    st.session_state["selecciones"][slot] = nueva
+                                    st.rerun()
+                    with col_down:
+                        if st.button("⬇️", key=f"down_{slot}"):
+                            if activo in seleccionados_nuevos:
+                                idx_pos = seleccionados_nuevos.index(activo)
+                                if idx_pos < len(seleccionados_nuevos) - 1:
+                                    nueva = list(seleccionados_nuevos)
+                                    nueva[idx_pos], nueva[idx_pos + 1] = nueva[idx_pos + 1], nueva[idx_pos]
+                                    st.session_state["selecciones"][slot] = nueva
+                                    st.rerun()
+                else:
+                    st.session_state["_slot_orden_activo"][slot] = None
+                    st.caption("Selecciona opciones")
+
                 if st.button("🗑️", key=f"clear_{slot}"):
                     st.session_state["selecciones"][slot] = []
+                    st.session_state["_slot_orden_activo"][slot] = None
                     st.rerun()
 
             st.session_state["selecciones"][slot] = seleccionados_nuevos
@@ -603,6 +766,7 @@ def main() -> None:
                         c = contacto_por_email(email)
                         if c:
                             engine.registrar_envio_en_contacto(c, ruta_eml)
+                    st.session_state["ultimo_eml_generado"] = ruta_eml.name
                     st.success(f"Correo generado: {ruta_eml.name}")
                     utils.abrir_archivo(ruta_eml)
 
@@ -660,9 +824,12 @@ def main() -> None:
                     nombres_adjuntos = ", ".join(a.name for a in meta_adjuntos)
                     st.markdown(f"📎 **Adjuntos:** {nombres_adjuntos}")
 
+            # --- Estado de validacion ---
+            html = renderizar_preview(plantilla, firma, variables)
+            mostrar_estado_validacion(html)
+
             st.markdown("---")
             st.markdown("### Vista previa del correo")
-            html = renderizar_preview(plantilla, firma, variables)
             st.components.v1.html(html, height=700, scrolling=True)
         else:
             st.info("Configura los campos para ver la previsualizacion")

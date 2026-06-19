@@ -51,10 +51,15 @@ def cargar_config() -> dict[str, Any]:
         return {
             "remitente_default": "tu@correo.com",
             "firma_default": None,
+            "plantilla_default": None,
+            "combo_default": "",
             "output": {"modo": "dias", "dias": 30},
         }
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        config = yaml.safe_load(f) or {}
+    config.setdefault("plantilla_default", None)
+    config.setdefault("combo_default", "")
+    return config
 
 
 def guardar_config(config: dict[str, Any]) -> None:
@@ -512,6 +517,24 @@ def validar_html_final(html: str) -> list[str]:
     for match in re.finditer(r"\{\{([A-Za-z0-9_]+)_obligatorio\}\}", html):
         errores.append(match.group(1) + "_obligatorio")
     return errores
+
+
+def detectar_variables_pendientes(html: str) -> tuple[list[str], list[str]]:
+    """
+    Devuelve dos listas:
+      - obligatorios: variables {{algo_obligatorio}} no resueltas.
+      - pendientes: variables {{algo}} (no obligatorias) que aun aparecen.
+    """
+    obligatorios: list[str] = []
+    pendientes: list[str] = []
+    for match in re.finditer(r"\{\{([A-Za-z0-9_]+)(?:_obligatorio)?\}\}", html):
+        nombre = match.group(1)
+        es_obligatorio = match.group(0).endswith("_obligatorio}}")
+        if es_obligatorio:
+            obligatorios.append(nombre + "_obligatorio")
+        else:
+            pendientes.append(nombre)
+    return list(dict.fromkeys(obligatorios)), list(dict.fromkeys(pendientes))
 
 
 # ---------------------------------------------------------------------------
