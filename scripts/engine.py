@@ -333,6 +333,13 @@ def guardar_contacto(slug: str, datos: dict[str, Any], historial: str = "") -> N
         frontmatter.dump(post, f)
 
 
+def eliminar_contacto(slug: str) -> None:
+    """Elimina definitivamente un contacto."""
+    ruta = CONTACTS_DIR / f"{slug}.md"
+    if ruta.exists():
+        ruta.unlink()
+
+
 def crear_o_actualizar_contacto(
     nombre: str,
     email: str,

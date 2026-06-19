@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -32,16 +33,17 @@ def inicializar_estado() -> None:
         "plantilla_nombre": None,
         "combo_nombre": "",
         "firma_slug": "",
-        "contacto_email": "",
+        "para": [],
+        "cc": [],
+        "cco": [],
         "empresa_correo": "",
-        "cc": "",
-        "cco": "",
         "asunto": "",
         "selecciones": {},
         "personalizado": "",
         "adjuntos_seleccionados": [],
         "preview_css": "",
         "html_preview": "",
+        "refresh": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -55,6 +57,38 @@ def resetear_selecciones() -> None:
     st.session_state["asunto"] = ""
     st.session_state["personalizado"] = ""
     st.session_state["adjuntos_seleccionados"] = []
+
+
+def contactos_opciones() -> list[tuple[str, str]]:
+    """Devuelve lista de (email, etiqueta) de contactos."""
+    contactos = engine.listar_contactos()
+    opciones: list[tuple[str, str]] = []
+    for c in contactos:
+        email = c["datos"].get("email", "")
+        nombre = c["datos"].get("nombre", "")
+        empresa = c["datos"].get("empresa", "")
+        etiqueta = f"{nombre} <{email}> ({empresa})"
+        opciones.append((email, etiqueta))
+    return opciones
+
+
+def contacto_por_email(email: str) -> dict[str, Any] | None:
+    """Alias seguro para cargar contacto por email."""
+    if not email:
+        return None
+    return engine.cargar_contacto_por_email(email)
+
+
+def actualizar_empresa_correo() -> None:
+    """Actualiza 'empresa_correo' a partir del primer destinatario de Para."""
+    para = st.session_state.get("para", [])
+    empresa_actual = st.session_state.get("empresa_correo", "")
+    if para:
+        c = contacto_por_email(para[0])
+        if c and not empresa_actual:
+            st.session_state["empresa_correo"] = c["datos"].get("empresa", "")
+    else:
+        st.session_state["empresa_correo"] = ""
 
 
 def listar_opciones_con_indices(opciones: list[str]) -> list[tuple[int, str]]:
@@ -203,108 +237,209 @@ def main() -> None:
             st.rerun()
 
         st.divider()
-        st.subheader("2. Firma")
+        st.subheader("2. Personas")
 
-        firmas = engine.listar_firmas()
-        firma_opciones = [("", "Sin firma")] + [(f["slug"], f["nombre"]) for f in firmas]
-        firma_default = config.get("firma_default", "")
-        default_index = next(
-            (i for i, (slug, _) in enumerate(firma_opciones) if slug == firma_default),
-            0,
-        )
-        firma_slug = st.selectbox(
-            "Firma",
-            options=[slug for slug, _ in firma_opciones],
-            format_func=lambda x: next(nombre for slug, nombre in firma_opciones if slug == x),
-            index=default_index,
-            key="firma_slug_select",
-        )
-        st.session_state["firma_slug"] = firma_slug
-        firma = engine.cargar_firma(firma_slug) if firma_slug else None
+        opciones_contactos = contactos_opciones()
+        emails_contactos = [email for email, _ in opciones_contactos]
+        etiquetas_contactos = {email: etiqueta for email, etiqueta in opciones_contactos}
 
-        st.divider()
-        st.subheader("3. Destinatario")
-
-        contactos = engine.listar_contactos()
-        contacto_opciones = [("", "Nuevo contacto")] + [
-            (c["datos"].get("email", ""), f"{c['datos'].get('nombre', '')} ({c['datos'].get('empresa', '')})")
-            for c in contactos
-        ]
-        contacto_email = st.selectbox(
-            "Contacto",
-            options=[email for email, _ in contacto_opciones],
-            format_func=lambda x: next(nombre for email, nombre in contacto_opciones if email == x),
-            key="contacto_email_select",
-        )
-        st.session_state["contacto_email"] = contacto_email
-
-        with st.expander("Nuevo contacto", expanded=not contacto_email):
+        with st.expander("Añadir persona"):
             nuevo_nombre = st.text_input("Nombre", key="nuevo_nombre")
             nuevo_email = st.text_input("Email", key="nuevo_email")
             nuevo_empresa = st.text_input("Empresa", key="nuevo_empresa")
-            if st.button("Crear contacto", key="crear_contacto"):
+            if st.button("Añadir", key="btn_anadir_persona"):
                 if not nuevo_nombre or not nuevo_email or not nuevo_empresa:
                     st.error("Rellena todos los campos")
                 elif "@" not in nuevo_email:
                     st.error("Email no valido")
+                elif nuevo_email in emails_contactos:
+                    st.error("Ya existe un contacto con ese email")
                 else:
                     engine.crear_o_actualizar_contacto(
                         nuevo_nombre, nuevo_email, nuevo_empresa
                     )
-                    st.session_state["contacto_email"] = nuevo_email
-                    st.success("Contacto creado")
+                    st.success("Persona añadida")
                     st.rerun()
 
-        contacto_seleccionado = engine.cargar_contacto_por_email(contacto_email) if contacto_email else None
-        empresa_default = (
-            contacto_seleccionado["datos"].get("empresa", "")
-            if contacto_seleccionado
-            else ""
+        if opciones_contactos:
+            st.markdown("**Contactos existentes**")
+            for email, etiqueta in opciones_contactos:
+                c = engine.cargar_contacto_por_email(email)
+                if not c:
+                    continue
+                col_c1, col_c2, col_c3 = st.columns([4, 1, 1])
+                with col_c1:
+                    st.markdown(f"- {etiqueta}")
+                with col_c2:
+                    if st.button("✏️", key=f"editar_{email}"):
+                        st.session_state[f"editando_{email}"] = True
+                with col_c3:
+                    if st.button("🗑️", key=f"eliminar_{email}"):
+                        engine.eliminar_contacto(c["slug"])
+                        # Limpiar de destinatarios si estaba
+                        for campo in ["para", "cc", "cco"]:
+                            st.session_state[campo] = [
+                                x for x in st.session_state.get(campo, []) if x != email
+                            ]
+                        st.success("Persona eliminada")
+                        st.rerun()
+
+                if st.session_state.get(f"editando_{email}", False):
+                    with st.container(border=True):
+                        datos = c["datos"]
+                        edit_nombre = st.text_input(
+                            "Nombre",
+                            value=datos.get("nombre", ""),
+                            key=f"edit_nombre_{email}",
+                        )
+                        edit_email = st.text_input(
+                            "Email",
+                            value=datos.get("email", ""),
+                            key=f"edit_email_{email}",
+                        )
+                        edit_empresa = st.text_input(
+                            "Empresa",
+                            value=datos.get("empresa", ""),
+                            key=f"edit_empresa_{email}",
+                        )
+                        col_g1, col_g2 = st.columns(2)
+                        with col_g1:
+                            if st.button("Guardar", key=f"guardar_{email}"):
+                                if not edit_nombre or not edit_email or not edit_empresa:
+                                    st.error("Rellena todos los campos")
+                                elif "@" not in edit_email:
+                                    st.error("Email no valido")
+                                else:
+                                    engine.guardar_contacto(
+                                        c["slug"],
+                                        {
+                                            "nombre": edit_nombre,
+                                            "email": edit_email,
+                                            "empresa": edit_empresa,
+                                        },
+                                        c.get("historial", ""),
+                                    )
+                                    # Actualizar destinatarios si el email cambio
+                                    if edit_email != email:
+                                        for campo in ["para", "cc", "cco"]:
+                                            st.session_state[campo] = [
+                                                edit_email if x == email else x
+                                                for x in st.session_state.get(campo, [])
+                                            ]
+                                    st.session_state[f"editando_{email}"] = False
+                                    st.success("Persona actualizada")
+                                    st.rerun()
+                        with col_g2:
+                            if st.button("Cancelar", key=f"cancelar_{email}"):
+                                st.session_state[f"editando_{email}"] = False
+                                st.rerun()
+        else:
+            st.info("No hay contactos. Añade uno arriba.")
+
+        st.divider()
+        st.subheader("3. Destinatarios")
+
+        # Filtrar duplicados: un contacto solo puede estar en una categoria
+        para = st.multiselect(
+            "Para",
+            options=emails_contactos,
+            format_func=lambda x: etiquetas_contactos.get(x, x),
+            default=st.session_state.get("para", []),
+            key="para_select",
         )
-        if not st.session_state.get("empresa_correo"):
-            st.session_state["empresa_correo"] = empresa_default
+        st.session_state["para"] = para
+
+        disponibles_cc = [e for e in emails_contactos if e not in para]
+        etiquetas_cc = {k: v for k, v in etiquetas_contactos.items() if k in disponibles_cc}
+        cc = st.multiselect(
+            "CC",
+            options=disponibles_cc,
+            format_func=lambda x: etiquetas_cc.get(x, x),
+            default=[e for e in st.session_state.get("cc", []) if e in disponibles_cc],
+            key="cc_select",
+        )
+        st.session_state["cc"] = cc
+
+        disponibles_cco = [e for e in emails_contactos if e not in para and e not in cc]
+        etiquetas_cco = {k: v for k, v in etiquetas_contactos.items() if k in disponibles_cco}
+        cco = st.multiselect(
+            "CCO",
+            options=disponibles_cco,
+            format_func=lambda x: etiquetas_cco.get(x, x),
+            default=[e for e in st.session_state.get("cco", []) if e in disponibles_cco],
+            key="cco_select",
+        )
+        st.session_state["cco"] = cco
+
+        # Actualizar empresa del correo segun primer destinatario de Para
+        if para:
+            c = contacto_por_email(para[0])
+            empresa_sugerida = c["datos"].get("empresa", "") if c else ""
+        else:
+            empresa_sugerida = ""
+
+        # Solo actualizar automaticamente si no hay empresa manual guardada
+        # y el primer destinatario cambio
+        session_empresa = st.session_state.get("empresa_correo", "")
+        if not session_empresa and empresa_sugerida:
+            st.session_state["empresa_correo"] = empresa_sugerida
+
+        st.divider()
+        st.subheader("4. Empresa para este correo")
 
         empresa_correo = st.text_input(
-            "Empresa para este correo",
-            value=st.session_state["empresa_correo"],
+            "Empresa",
+            value=st.session_state.get("empresa_correo", ""),
             key="empresa_correo_input",
         )
         st.session_state["empresa_correo"] = empresa_correo
 
-        cc = st.text_input("CC", value=st.session_state["cc"], key="cc_input")
-        cco = st.text_input("CCO", value=st.session_state["cco"], key="cco_input")
-        st.session_state["cc"] = cc
-        st.session_state["cco"] = cco
-
         st.divider()
-        st.subheader("4. Asunto")
+        st.subheader("5. Asunto")
 
         asuntos = plantilla.get("asuntos", [])
-        if asuntos:
-            variables_tmp = {
-                "nombre": contacto_seleccionado["datos"].get("nombre", "") if contacto_seleccionado else "",
-                "email": contacto_email,
-                "empresa": empresa_correo,
-            }
-            asuntos_renderizados = [
-                engine.jinja2.Template(a).render(**variables_tmp) for a in asuntos
-            ]
-            asunto_opciones = ["Personalizado"] + asuntos_renderizados
-            asunto_sel = st.selectbox("Asunto base", asunto_opciones, key="asunto_base")
-            if asunto_sel == "Personalizado":
-                asunto_valor = st.text_input("Asunto", value=st.session_state["asunto"], key="asunto_input")
-            else:
-                asunto_valor = st.text_input(
-                    "Asunto editable",
-                    value=asunto_sel if not st.session_state["asunto"] else st.session_state["asunto"],
-                    key="asunto_input",
-                )
+        variables_asunto = {
+            "nombre": contacto_por_email(para[0])["datos"].get("nombre", "") if para else "",
+            "email": para[0] if para else "",
+            "empresa": empresa_correo,
+        }
+        asuntos_renderizados = [
+            engine.jinja2.Template(a).render(**variables_asunto) for a in asuntos
+        ]
+        asunto_opciones = ["Personalizado"] + asuntos_renderizados
+        asunto_sel = st.selectbox("Asunto base", asunto_opciones, key="asunto_base")
+        if asunto_sel == "Personalizado":
+            asunto_valor = st.text_input(
+                "Asunto",
+                value=st.session_state["asunto"],
+                key="asunto_input",
+            )
         else:
-            asunto_valor = st.text_input("Asunto", value=st.session_state["asunto"], key="asunto_input")
+            asunto_valor = st.text_input(
+                "Asunto editable",
+                value=asunto_sel if not st.session_state["asunto"] else st.session_state["asunto"],
+                key="asunto_input",
+            )
         st.session_state["asunto"] = asunto_valor
 
         st.divider()
-        st.subheader("5. Bloques del correo")
+        st.subheader("6. Archivos adjuntos")
+
+        adjuntos = plantilla.get("adjuntos", [])
+        if adjuntos:
+            adjuntos_seleccionados = st.multiselect(
+                "Adjuntos",
+                options=adjuntos,
+                format_func=lambda x: f"📎 {x.name}",
+                default=st.session_state["adjuntos_seleccionados"],
+                key="adjuntos_select",
+            )
+            st.session_state["adjuntos_seleccionados"] = adjuntos_seleccionados
+        else:
+            st.info("Esta plantilla no tiene adjuntos")
+
+        st.divider()
+        st.subheader("7. Bloques del correo")
 
         for slot in slots:
             if slot in ("firma", "texto_obligatorio"):
@@ -351,7 +486,7 @@ def main() -> None:
                 st.markdown(orden_texto)
 
         st.divider()
-        st.subheader("6. Campo personalizado")
+        st.subheader("8. Campo personalizado")
 
         personalizado = st.text_area(
             "Texto personalizado (Markdown soportado)",
@@ -362,30 +497,33 @@ def main() -> None:
         st.session_state["personalizado"] = personalizado
 
         st.divider()
-        st.subheader("7. Adjuntos")
+        st.subheader("9. Firma")
 
-        adjuntos = plantilla.get("adjuntos", [])
-        if adjuntos:
-            adjuntos_seleccionados = st.multiselect(
-                "Adjuntos",
-                options=adjuntos,
-                format_func=lambda x: x.name,
-                default=st.session_state["adjuntos_seleccionados"],
-                key="adjuntos_select",
-            )
-            st.session_state["adjuntos_seleccionados"] = adjuntos_seleccionados
-        else:
-            st.info("Esta plantilla no tiene adjuntos")
+        firmas = engine.listar_firmas()
+        firma_opciones = [("", "Sin firma")] + [(f["slug"], f["nombre"]) for f in firmas]
+        firma_default = config.get("firma_default", "")
+        default_index = next(
+            (i for i, (slug, _) in enumerate(firma_opciones) if slug == firma_default),
+            0,
+        )
+        firma_slug = st.selectbox(
+            "Firma",
+            options=[slug for slug, _ in firma_opciones],
+            format_func=lambda x: next(nombre for slug, nombre in firma_opciones if slug == x),
+            index=default_index,
+            key="firma_slug_select",
+        )
+        st.session_state["firma_slug"] = firma_slug
+        firma = engine.cargar_firma(firma_slug) if firma_slug else None
 
         st.divider()
 
-        # Variables
-        nombre_destinatario = (
-            contacto_seleccionado["datos"].get("nombre", "") if contacto_seleccionado else ""
-        )
+        # Variables base del primer destinatario principal
+        primer_contacto = contacto_por_email(para[0]) if para else None
+        nombre_destinatario = primer_contacto["datos"].get("nombre", "") if primer_contacto else ""
         variables = {
             "nombre": nombre_destinatario,
-            "email": contacto_email,
+            "email": para[0] if para else "",
             "empresa": empresa_correo,
         }
 
@@ -402,23 +540,42 @@ def main() -> None:
                 errores = engine.validar_html_final(html_preview)
                 if errores:
                     st.error("Hay campos obligatorios sin rellenar: " + ", ".join(errores))
-                elif not contacto_email:
-                    st.error("Selecciona un destinatario")
+                elif not para:
+                    st.error("Selecciona al menos un destinatario en 'Para'")
                 elif not asunto_valor:
                     st.error("Escribe un asunto")
                 else:
-                    destinatarios = [
-                        {
-                            "tipo": "para",
-                            "email": contacto_email,
-                            "nombre": nombre_destinatario,
-                            "empresa": empresa_correo,
-                        }
-                    ]
-                    if cc:
-                        destinatarios.append({"tipo": "cc", "email": cc, "nombre": "", "empresa": ""})
-                    if cco:
-                        destinatarios.append({"tipo": "cco", "email": cco, "nombre": "", "empresa": ""})
+                    destinatarios: list[dict[str, str]] = []
+                    for email in para:
+                        c = contacto_por_email(email)
+                        destinatarios.append(
+                            {
+                                "tipo": "para",
+                                "email": email,
+                                "nombre": c["datos"].get("nombre", "") if c else "",
+                                "empresa": empresa_correo,
+                            }
+                        )
+                    for email in cc:
+                        c = contacto_por_email(email)
+                        destinatarios.append(
+                            {
+                                "tipo": "cc",
+                                "email": email,
+                                "nombre": c["datos"].get("nombre", "") if c else "",
+                                "empresa": empresa_correo,
+                            }
+                        )
+                    for email in cco:
+                        c = contacto_por_email(email)
+                        destinatarios.append(
+                            {
+                                "tipo": "cco",
+                                "email": email,
+                                "nombre": c["datos"].get("nombre", "") if c else "",
+                                "empresa": empresa_correo,
+                            }
+                        )
 
                     from_email = config.get("remitente_default", "tu@correo.com")
                     firma_html, imagenes_firma = engine.renderizar_firma(firma, variables)
@@ -437,8 +594,11 @@ def main() -> None:
                         adjuntos=st.session_state["adjuntos_seleccionados"],
                         imagenes_inline=imagenes_firma,
                     )
-                    if contacto_seleccionado:
-                        engine.registrar_envio_en_contacto(contacto_seleccionado, ruta_eml)
+                    # Registrar en todos los destinatarios principales
+                    for email in para:
+                        c = contacto_por_email(email)
+                        if c:
+                            engine.registrar_envio_en_contacto(c, ruta_eml)
                     st.success(f"Correo generado: {ruta_eml.name}")
                     utils.abrir_archivo(ruta_eml)
 
@@ -458,35 +618,40 @@ def main() -> None:
             # Renderizar de nuevo si cambia CSS
             plantilla = engine.cargar_plantilla(st.session_state["plantilla_nombre"])
             firma = engine.cargar_firma(st.session_state["firma_slug"]) if st.session_state["firma_slug"] else None
+
+            primer_email = st.session_state.get("para", [None])[0]
+            primer_contacto = contacto_por_email(primer_email) if primer_email else None
             variables = {
-                "nombre": "",
-                "email": st.session_state["contacto_email"],
-                "empresa": st.session_state["empresa_correo"],
+                "nombre": primer_contacto["datos"].get("nombre", "") if primer_contacto else "",
+                "email": primer_email or "",
+                "empresa": st.session_state.get("empresa_correo", ""),
             }
-            contacto_preview = None
-            if st.session_state["contacto_email"]:
-                contacto_preview = engine.cargar_contacto_por_email(st.session_state["contacto_email"])
-                if contacto_preview:
-                    variables["nombre"] = contacto_preview["datos"].get("nombre", "")
+
+            para_emails = st.session_state.get("para", [])
+            cc_emails = st.session_state.get("cc", [])
+            cco_emails = st.session_state.get("cco", [])
 
             # --- Tarjeta de metadatos ---
             st.markdown("### Metadatos del correo")
             meta_asunto = st.session_state.get("asunto", "")
-            meta_destinatarios: list[str] = []
-            if contacto_preview:
-                nombre_para = contacto_preview["datos"].get("nombre", "")
-                email_para = contacto_preview["datos"].get("email", "")
-                meta_destinatarios.append(f"👤 **Para:** {nombre_para} <{email_para}>")
-            if st.session_state.get("cc"):
-                meta_destinatarios.append(f"👥 **CC:** {st.session_state['cc']}")
-            if st.session_state.get("cco"):
-                meta_destinatarios.append(f"👁️ **CCO:** {st.session_state['cco']}")
-            meta_adjuntos = st.session_state.get("adjuntos_seleccionados", [])
+
+            def etiqueta_contacto(email: str) -> str:
+                c = contacto_por_email(email)
+                if not c:
+                    return email
+                nombre = c["datos"].get("nombre", "")
+                return f"{nombre} <{email}>"
 
             with st.container(border=True):
                 st.markdown(f"📧 **Asunto:** {meta_asunto}")
-                for linea in meta_destinatarios:
-                    st.markdown(linea)
+                if para_emails:
+                    st.markdown(f"👤 **Para:** {', '.join(etiqueta_contacto(e) for e in para_emails)}")
+                if cc_emails:
+                    st.markdown(f"👥 **CC:** {', '.join(etiqueta_contacto(e) for e in cc_emails)}")
+                if cco_emails:
+                    st.markdown(f"👁️ **CCO:** {', '.join(etiqueta_contacto(e) for e in cco_emails)}")
+                st.markdown(f"🏢 **Empresa:** {st.session_state.get('empresa_correo', '')}")
+                meta_adjuntos = st.session_state.get("adjuntos_seleccionados", [])
                 if meta_adjuntos:
                     nombres_adjuntos = ", ".join(a.name for a in meta_adjuntos)
                     st.markdown(f"📎 **Adjuntos:** {nombres_adjuntos}")
