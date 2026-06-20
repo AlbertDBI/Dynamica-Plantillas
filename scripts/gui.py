@@ -590,8 +590,6 @@ def main() -> None:
             st.markdown(f"**{slot.capitalize()}**")
             opciones = listar_opciones_con_indices(plantilla["campos"][slot])
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
-            orden_key = f"orden_activo_{slot}"
-            activo = st.session_state.get(orden_key)
 
             col1, col2 = st.columns([3, 1])
             with col1:
@@ -604,54 +602,33 @@ def main() -> None:
                 )
             with col2:
                 st.caption("Orden")
-                # Seleccionar cual elemento mover
-                opciones_activas = [
-                    (idx, texto) for idx, texto in opciones if idx in seleccionados_nuevos
-                ]
-                if opciones_activas:
-                    nombres_opciones = {idx: texto for idx, texto in opciones_activas}
-                    if activo not in seleccionados_nuevos:
-                        activo = opciones_activas[0][0]
-                    activo = st.selectbox(
-                        "Mover",
-                        options=[idx for idx, _ in opciones_activas],
-                        format_func=lambda x: nombres_opciones[x][:40],
-                        index=[idx for idx, _ in opciones_activas].index(activo),
-                        key=orden_key,
-                        label_visibility="collapsed",
-                    )
+                if len(seleccionados_nuevos) > 1:
+                    # El primer elemento seleccionado es el que se mueve
+                    activo = seleccionados_nuevos[0]
+                    nombres_opciones = {idx: texto for idx, texto in opciones}
+                    st.caption(f"Mover: {nombres_opciones[activo][:30]}")
                     col_up, col_down = st.columns(2)
                     with col_up:
                         if st.button("⬆️", key=f"up_{slot}"):
-                            if activo in seleccionados_nuevos:
-                                idx_pos = seleccionados_nuevos.index(activo)
-                                if idx_pos > 0:
-                                    nueva = list(seleccionados_nuevos)
-                                    nueva[idx_pos - 1], nueva[idx_pos] = nueva[idx_pos], nueva[idx_pos - 1]
-                                    st.session_state["selecciones"][slot] = nueva
-                                    # Actualizar el activo al elemento que subio
-                                    st.session_state[orden_key] = nueva[idx_pos - 1]
-                                    st.rerun()
+                            idx_pos = seleccionados_nuevos.index(activo)
+                            if idx_pos > 0:
+                                nueva = list(seleccionados_nuevos)
+                                nueva[idx_pos - 1], nueva[idx_pos] = nueva[idx_pos], nueva[idx_pos - 1]
+                                st.session_state["selecciones"][slot] = nueva
+                                st.rerun()
                     with col_down:
                         if st.button("⬇️", key=f"down_{slot}"):
-                            if activo in seleccionados_nuevos:
-                                idx_pos = seleccionados_nuevos.index(activo)
-                                if idx_pos < len(seleccionados_nuevos) - 1:
-                                    nueva = list(seleccionados_nuevos)
-                                    nueva[idx_pos], nueva[idx_pos + 1] = nueva[idx_pos + 1], nueva[idx_pos]
-                                    st.session_state["selecciones"][slot] = nueva
-                                    # Actualizar el activo al elemento que bajo
-                                    st.session_state[orden_key] = nueva[idx_pos + 1]
-                                    st.rerun()
+                            idx_pos = seleccionados_nuevos.index(activo)
+                            if idx_pos < len(seleccionados_nuevos) - 1:
+                                nueva = list(seleccionados_nuevos)
+                                nueva[idx_pos], nueva[idx_pos + 1] = nueva[idx_pos + 1], nueva[idx_pos]
+                                st.session_state["selecciones"][slot] = nueva
+                                st.rerun()
                 else:
-                    if orden_key in st.session_state:
-                        st.session_state[orden_key] = None
-                    st.caption("Selecciona opciones")
+                    st.caption("Selecciona 2+ opciones")
 
                 if st.button("🗑️", key=f"clear_{slot}"):
                     st.session_state["selecciones"][slot] = []
-                    if orden_key in st.session_state:
-                        st.session_state[orden_key] = None
                     st.rerun()
 
             st.session_state["selecciones"][slot] = seleccionados_nuevos
