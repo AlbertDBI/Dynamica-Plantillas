@@ -589,7 +589,11 @@ def main() -> None:
 
             st.markdown(f"**{slot.capitalize()}**")
             opciones = listar_opciones_con_indices(plantilla["campos"][slot])
+            multiselect_key = f"multiselect_{slot}"
+
+            # Aplicar movimiento si se pulso una flecha en el render anterior
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
+            st.session_state[multiselect_key] = list(seleccion_actual)
 
             col1, col2 = st.columns([3, 1])
             with col1:
@@ -597,15 +601,13 @@ def main() -> None:
                     f"Opciones de {slot}",
                     options=[idx for idx, _ in opciones],
                     format_func=lambda x: next(texto for idx, texto in opciones if idx == x),
-                    default=seleccion_actual,
-                    key=f"multiselect_{slot}",
+                    key=multiselect_key,
                 )
             with col2:
                 st.caption("Orden")
                 if len(seleccionados_nuevos) > 1:
-                    # El primer elemento seleccionado es el que se mueve
-                    activo = seleccionados_nuevos[0]
                     nombres_opciones = {idx: texto for idx, texto in opciones}
+                    activo = seleccionados_nuevos[0]
                     st.caption(f"Mover: {nombres_opciones[activo][:30]}")
                     col_up, col_down = st.columns(2)
                     with col_up:
@@ -615,6 +617,7 @@ def main() -> None:
                                 nueva = list(seleccionados_nuevos)
                                 nueva[idx_pos - 1], nueva[idx_pos] = nueva[idx_pos], nueva[idx_pos - 1]
                                 st.session_state["selecciones"][slot] = nueva
+                                st.session_state[multiselect_key] = nueva
                                 st.rerun()
                     with col_down:
                         if st.button("⬇️", key=f"down_{slot}"):
@@ -623,12 +626,14 @@ def main() -> None:
                                 nueva = list(seleccionados_nuevos)
                                 nueva[idx_pos], nueva[idx_pos + 1] = nueva[idx_pos + 1], nueva[idx_pos]
                                 st.session_state["selecciones"][slot] = nueva
+                                st.session_state[multiselect_key] = nueva
                                 st.rerun()
                 else:
                     st.caption("Selecciona 2+ opciones")
 
                 if st.button("🗑️", key=f"clear_{slot}"):
                     st.session_state["selecciones"][slot] = []
+                    st.session_state[multiselect_key] = []
                     st.rerun()
 
             st.session_state["selecciones"][slot] = seleccionados_nuevos
