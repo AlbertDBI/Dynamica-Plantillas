@@ -506,9 +506,13 @@ def main() -> None:
             if primer_para_actual:
                 c = contacto_por_email(primer_para_actual)
                 if c:
-                    st.session_state["empresa_correo"] = c["datos"].get("empresa", "")
+                    empresa_contacto = c["datos"].get("empresa", "")
+                    st.session_state["empresa_correo"] = empresa_contacto
+                    # Forzar actualizacion del widget
+                    st.session_state["empresa_correo_input"] = empresa_contacto
             else:
                 st.session_state["empresa_correo"] = ""
+                st.session_state["empresa_correo_input"] = ""
 
         st.divider()
         st.subheader("4. Empresa para este correo")
