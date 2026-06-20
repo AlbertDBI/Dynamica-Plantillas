@@ -550,6 +550,8 @@ def main() -> None:
         if st.session_state.get("_asunto_base_anterior") != asunto_sel:
             st.session_state["asunto"] = asunto_sel
             st.session_state["_asunto_base_anterior"] = asunto_sel
+            # Forzar actualizacion del widget editable y del preview
+            st.session_state["asunto_input"] = asunto_sel
 
         asunto_valor = st.text_input(
             "Asunto editable",
