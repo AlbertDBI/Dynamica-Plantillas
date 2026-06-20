@@ -370,18 +370,16 @@ def main() -> None:
         etiquetas_contactos = {email: etiqueta for email, etiqueta in opciones_contactos}
 
         with st.expander("Anadir persona"):
-            version = st.session_state.get("form_contacto_version", 0)
-            form_key = f"form_nuevo_contacto_{version}"
-            with st.form(form_key):
-                st.text_input("Nombre", key=f"nuevo_nombre_{version}")
-                st.text_input("Email", key=f"nuevo_email_{version}")
-                st.text_input("Empresa", key=f"nuevo_empresa_{version}")
+            with st.form("form_nuevo_contacto", clear_on_submit=True):
+                nombre_input = st.text_input("Nombre", key="nuevo_nombre")
+                email_input = st.text_input("Email", key="nuevo_email")
+                empresa_input = st.text_input("Empresa", key="nuevo_empresa")
                 submit = st.form_submit_button("Anadir")
 
             if submit:
-                nombre = st.session_state.get(f"nuevo_nombre_{version}", "").strip()
-                email = st.session_state.get(f"nuevo_email_{version}", "").strip()
-                empresa = st.session_state.get(f"nuevo_empresa_{version}", "").strip()
+                nombre = nombre_input.strip()
+                email = email_input.strip()
+                empresa = empresa_input.strip()
                 if not nombre or not email or not empresa:
                     st.error("Rellena todos los campos")
                 elif "@" not in email:
@@ -391,7 +389,6 @@ def main() -> None:
                 else:
                     try:
                         engine.crear_o_actualizar_contacto(nombre, email, empresa)
-                        st.session_state["form_contacto_version"] = version + 1
                         st.success(f"Persona anadida: {nombre}")
                         st.rerun()
                     except Exception as e:
