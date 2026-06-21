@@ -112,9 +112,16 @@ def contacto_por_email(email: str) -> dict[str, Any] | None:
     return engine.cargar_contacto_por_email(email)
 
 
-def listar_opciones_con_indices(opciones: list[str]) -> list[tuple[int, str]]:
-    """Devuelve lista de opciones con indice 1-based."""
-    return [(i + 1, op) for i, op in enumerate(opciones)]
+def listar_opciones_con_indices(opciones: list[dict[str, str]] | list[str]) -> list[tuple[int, str]]:
+    """Devuelve lista de opciones con indice 1-based y titulo para mostrar."""
+    resultado: list[tuple[int, str]] = []
+    for i, op in enumerate(opciones):
+        if isinstance(op, dict):
+            titulo = op.get("titulo", "") or op.get("cuerpo", "")[:80]
+        else:
+            titulo = str(op)[:80]
+        resultado.append((i + 1, titulo))
+    return resultado
 
 
 def aplicar_combo(nombre_plantilla: str, combo_nombre: str) -> None:
@@ -609,10 +616,13 @@ def main() -> None:
                     return opcion.get("cuerpo", "")
                 return opcion
 
+            def format_opcion(x: Any) -> str:
+                return nombres_opciones.get(int(x), "")[:80]
+
             seleccionados_nuevos = st.multiselect(
                 f"Opciones de {slot}",
                 options=[idx for idx, _ in opciones],
-                format_func=lambda x: nombres_opciones.get(x, "")[:80],
+                format_func=format_opcion,
                 default=seleccion_actual,
                 key=multiselect_key,
             )
