@@ -579,6 +579,15 @@ def main() -> None:
         st.divider()
         st.subheader("7. Bloques del correo")
 
+        def reaplicar_orden(slot: str, seleccionados: list[int], orden_nuevo: list[int]) -> None:
+            """Reordena seleccionados segun la lista de indices deseada."""
+            mapping = {idx: pos for pos, idx in enumerate(seleccionados)}
+            nueva = [idx for idx in orden_nuevo if idx in mapping]
+            # Asegurar que todos los seleccionados estan
+            faltantes = [idx for idx in seleccionados if idx not in nueva]
+            nueva.extend(faltantes)
+            st.session_state["selecciones"][slot] = nueva
+
         for slot in slots:
             if slot in ("firma", "texto_obligatorio"):
                 continue
@@ -589,58 +598,76 @@ def main() -> None:
 
             st.markdown(f"**{slot.capitalize()}**")
             opciones = listar_opciones_con_indices(plantilla["campos"][slot])
+            nombres_opciones = {idx: texto for idx, texto in opciones}
             multiselect_key = f"multiselect_{slot}"
-
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
 
-            # Refrescar el multiselect si el orden cambio en el render anterior
-            refresh_key = f"refresh_{multiselect_key}"
-            if st.session_state.get(refresh_key):
-                if multiselect_key in st.session_state:
-                    del st.session_state[multiselect_key]
-                st.session_state[refresh_key] = False
+            # Render de preview del cuerpo para cada opcion
+            def ver_cuerpo(idx: int) -> str:
+                opcion = plantilla["campos"][slot][idx - 1]
+                if isinstance(opcion, dict):
+                    return opcion.get("cuerpo", "")
+                return opcion
 
             seleccionados_nuevos = st.multiselect(
                 f"Opciones de {slot}",
                 options=[idx for idx, _ in opciones],
-                format_func=lambda x: next(texto for idx, texto in opciones if idx == x),
+                format_func=lambda x: nombres_opciones.get(x, "")[:80],
                 default=seleccion_actual,
                 key=multiselect_key,
             )
-
             st.session_state["selecciones"][slot] = seleccionados_nuevos
 
             if seleccionados_nuevos:
                 st.markdown("Orden actual:")
-                nombres_opciones = {idx: texto for idx, texto in opciones}
+                num_items = len(seleccionados_nuevos)
                 for pos, idx in enumerate(seleccionados_nuevos, start=1):
-                    col_orden, col_up, col_down = st.columns([6, 1, 1])
-                    with col_orden:
-                        st.markdown(f"{pos}. {nombres_opciones[idx]}")
-                    with col_up:
-                        if st.button("⬆️", key=f"up_{slot}_{idx}"):
-                            if pos > 1:
-                                nueva = list(seleccionados_nuevos)
-                                nueva[pos - 2], nueva[pos - 1] = nueva[pos - 1], nueva[pos - 2]
-                                st.session_state["selecciones"][slot] = nueva
-                                st.session_state[refresh_key] = True
-                                st.rerun()
-                    with col_down:
-                        if st.button("⬇️", key=f"down_{slot}_{idx}"):
-                            if pos < len(seleccionados_nuevos):
-                                nueva = list(seleccionados_nuevos)
-                                nueva[pos - 1], nueva[pos] = nueva[pos], nueva[pos - 1]
-                                st.session_state["selecciones"][slot] = nueva
-                                st.session_state[refresh_key] = True
-                                st.rerun()
+                    opcion = plantilla["campos"][slot][idx - 1]
+                    titulo = nombres_opciones.get(idx, "Sin titulo")
+                    cuerpo_preview = ver_cuerpo(idx)[:200].replace("\n", " ")
+                    num_key = f"num_{slot}_{idx}"
+
+                    col_num, col_texto, col_del = st.columns([1, 6, 1])
+                    with col_num:
+                        numero = st.number_input(
+                            "#",
+                            min_value=1,
+                            max_value=num_items,
+                            value=pos,
+                            key=num_key,
+                            label_visibility="collapsed",
+                        )
+                    with col_texto:
+                        st.markdown(f"**{titulo}**")
+                        with st.expander("Ver cuerpo"):
+                            st.markdown(ver_cuerpo(idx))
+                    with col_del:
+                        if st.button("✖️", key=f"del_{slot}_{idx}"):
+                            nueva = [x for x in seleccionados_nuevos if x != idx]
+                            st.session_state["selecciones"][slot] = nueva
+                            if num_key in st.session_state:
+                                del st.session_state[num_key]
+                            st.rerun()
+
+                # Recoger orden deseado y reasignar automaticamente
+                orden_deseado: list[int] = []
+                for pos, idx in enumerate(seleccionados_nuevos, start=1):
+                    num_key = f"num_{slot}_{idx}"
+                    if num_key in st.session_state:
+                        orden_deseado.append((st.session_state[num_key], idx))
+                if orden_deseado:
+                    orden_deseado.sort(key=lambda x: x[0])
+                    nueva_orden = [idx for _, idx in orden_deseado]
+                    if nueva_orden != seleccionados_nuevos:
+                        # Reasignar numeros automaticamente para evitar duplicados
+                        for nueva_pos, idx in enumerate(nueva_orden, start=1):
+                            st.session_state[f"num_{slot}_{idx}"] = nueva_pos
+                        reaplicar_orden(slot, seleccionados_nuevos, nueva_orden)
+                        st.rerun()
 
             if st.button("🗑️", key=f"clear_{slot}"):
                 st.session_state["selecciones"][slot] = []
-                st.session_state[refresh_key] = True
                 st.rerun()
-
-        st.divider()
-        st.subheader("8. Campo personalizado")
 
         personalizado = st.text_area(
             "Texto personalizado (Markdown soportado)",
@@ -733,20 +760,21 @@ def main() -> None:
 
                     from_email = config.get("remitente_default", "tu@correo.com")
                     firma_html, imagenes_firma = engine.renderizar_firma(firma, variables)
-                    html_final = engine.ensamblar_html(
+                    html_final, imagenes_bloques = engine.ensamblar_html_con_imagenes(
                         plantilla=plantilla,
                         selecciones=st.session_state["selecciones"],
                         variables=variables,
                         firma_html=firma_html,
                         personalizados={"personalizado": personalizado},
                     )
+                    imagenes_inline = imagenes_firma + imagenes_bloques
                     ruta_eml = engine.generar_eml(
                         destinatarios=destinatarios,
                         asunto=asunto_valor,
                         html_final=html_final,
                         from_email=from_email,
                         adjuntos=st.session_state["adjuntos_seleccionados"],
-                        imagenes_inline=imagenes_firma,
+                        imagenes_inline=imagenes_inline,
                     )
                     # Registrar en todos los destinatarios principales
                     for email in para:
@@ -812,7 +840,13 @@ def main() -> None:
                     st.markdown(f"📎 **Adjuntos:** {nombres_adjuntos}")
 
             # --- Estado de validacion ---
-            html = renderizar_preview(plantilla, firma, variables)
+            html, _ = engine.ensamblar_html_con_imagenes(
+                plantilla=plantilla,
+                selecciones=st.session_state["selecciones"],
+                variables=variables,
+                firma_html=engine.renderizar_firma(firma, variables)[0],
+                personalizados={"personalizado": st.session_state.get("personalizado", "")},
+            )
             mostrar_estado_validacion(html)
 
             st.markdown("---")

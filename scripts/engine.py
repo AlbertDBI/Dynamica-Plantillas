@@ -160,31 +160,90 @@ def cargar_plantilla(nombre: str) -> dict[str, Any]:
     }
 
 
-def parsear_campos_md(texto: str) -> tuple[dict[str, list[str]], list[str]]:
+def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list[str]]:
     """
     Parsea un campos.md en secciones.
     La seccion '## asuntos' se devuelve aparte.
-    El resto son secciones de bloques.
+    El resto son secciones de bloques. Cada opcion puede tener:
+      - Formato simple: linea '- ...'
+      - Formato con titulo: '### Titulo' seguido de cuerpo multilinea
     """
-    secciones: dict[str, list[str]] = {}
+    secciones: dict[str, list[dict[str, str]]] = {}
     asuntos: list[str] = []
     seccion_actual: str | None = None
+    opcion_actual: dict[str, str] | None = None
 
-    for linea in texto.splitlines():
-        linea = linea.rstrip()
+    def guardar_opcion_actual() -> None:
+        nonlocal opcion_actual
+        if opcion_actual is None or seccion_actual is None:
+            return
+        cuerpo = opcion_actual["cuerpo"].strip()
+        titulo = opcion_actual["titulo"].strip()
+        if not cuerpo and not titulo:
+            opcion_actual = None
+            return
+        if not titulo:
+            # Fallback: primera linea del cuerpo como titulo
+            primera_linea = cuerpo.splitlines()[0].strip() if cuerpo else "Sin titulo"
+            opcion_actual["titulo"] = primera_linea[:80]
+        if not cuerpo:
+            opcion_actual["cuerpo"] = titulo
+        secciones[seccion_actual].append(opcion_actual)
+        opcion_actual = None
+
+    lineas = texto.splitlines()
+    i = 0
+    while i < len(lineas):
+        linea = lineas[i].rstrip()
+
         if linea.startswith("## "):
+            guardar_opcion_actual()
             seccion_actual = linea[3:].strip().lower()
             if seccion_actual not in secciones:
                 secciones[seccion_actual] = []
+            i += 1
             continue
-        if seccion_actual and linea.startswith("- "):
+
+        if seccion_actual is None:
+            i += 1
+            continue
+
+        if seccion_actual == "asuntos":
+            if linea.startswith("- "):
+                contenido = linea[2:].strip()
+                if contenido:
+                    asuntos.append(contenido)
+            i += 1
+            continue
+
+        # Bloques de opciones
+        if linea.startswith("### "):
+            guardar_opcion_actual()
+            opcion_actual = {"titulo": linea[4:].strip(), "cuerpo": ""}
+            i += 1
+            continue
+
+        if linea.startswith("- ") and (opcion_actual is None or not opcion_actual["cuerpo"].strip()):
+            # Formato simple: linea con guion sin titulo previo
+            if opcion_actual is not None:
+                guardar_opcion_actual()
             contenido = linea[2:].strip()
             if contenido:
-                if seccion_actual == "asuntos":
-                    asuntos.append(contenido)
-                else:
-                    secciones[seccion_actual].append(contenido)
+                opcion_actual = {"titulo": contenido[:80], "cuerpo": contenido}
+            i += 1
+            continue
 
+        if opcion_actual is not None:
+            if opcion_actual["cuerpo"]:
+                opcion_actual["cuerpo"] += "\n" + linea
+            else:
+                opcion_actual["cuerpo"] = linea
+            i += 1
+            continue
+
+        i += 1
+
+    guardar_opcion_actual()
     return secciones, asuntos
 
 
@@ -239,6 +298,81 @@ def cargar_firma(slug: str) -> dict[str, Any] | None:
     }
 
 
+def detectar_imagenes_locales(html: str, rutas_busqueda: list[Path]) -> tuple[str, list[Path]]:
+    """
+    Detecta imagenes locales en un HTML y las convierte a adjuntos inline.
+    Devuelve el HTML con src='cid:...' y la lista de imagenes encontradas.
+    """
+    imagenes: list[Path] = []
+    imagenes_cids: dict[Path, str] = {}
+
+    for match in re.finditer(r'src=["\']([^"\']+)["\']', html):
+        src = match.group(1)
+        if src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
+            continue
+        ruta_imagen = Path(src)
+        if not ruta_imagen.is_absolute():
+            encontrado = False
+            for base in rutas_busqueda:
+                candidatos = [base / ruta_imagen.name, base / src]
+                for candidato in candidatos:
+                    if candidato.exists():
+                        ruta_imagen = candidato
+                        encontrado = True
+                        break
+                if encontrado:
+                    break
+            if not encontrado:
+                continue
+        if ruta_imagen.exists() and ruta_imagen not in imagenes:
+            imagenes.append(ruta_imagen)
+            imagenes_cids[ruta_imagen] = f"img_{uuid.uuid4().hex[:8]}"
+
+    # Reemplazar referencias por cid
+    html_final = html
+    for imagen, cid in imagenes_cids.items():
+        src_relativa = None
+        for m in re.finditer(r'src=["\']([^"\']+)["\']', html):
+            candidate_src = m.group(1)
+            if candidate_src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
+                continue
+            candidate_path = Path(candidate_src)
+            for base in rutas_busqueda:
+                if not candidate_path.is_absolute():
+                    if (base / candidate_src).resolve() == imagen.resolve():
+                        src_relativa = candidate_src
+                        break
+                    if (base / candidate_path.name).resolve() == imagen.resolve():
+                        src_relativa = candidate_src
+                        break
+                else:
+                    if candidate_path.resolve() == imagen.resolve():
+                        src_relativa = candidate_src
+                        break
+            if src_relativa:
+                break
+
+        src_escaped = src_relativa.replace(" ", "%20") if src_relativa else None
+        variants = {
+            f'src="{imagen.name}"',
+            f"src='{imagen.name}'",
+            f'src="{str(imagen)}"',
+            f"src='{str(imagen)}'",
+        }
+        if src_relativa:
+            variants.update({
+                f'src="{src_relativa}"',
+                f"src='{src_relativa}'",
+                f'src="{src_escaped}"',
+                f"src='{src_escaped}'",
+            })
+
+        for variant in variants:
+            html_final = html_final.replace(variant, f'src="cid:{cid}"')
+
+    return html_final, imagenes
+
+
 def renderizar_firma(firma: dict[str, Any] | None, variables: dict[str, str]) -> tuple[str, list[Path]]:
     """
     Renderiza la firma y devuelve el HTML junto con la lista de imagenes locales
@@ -254,73 +388,7 @@ def renderizar_firma(firma: dict[str, Any] | None, variables: dict[str, str]) ->
     plantilla = jinja2.Template(html_crudo)
     html_renderizado = plantilla.render(**datos)
 
-    # Detectar imagenes locales y preparar adjuntos inline
-    imagenes: list[Path] = []
-    imagenes_cids: dict[Path, str] = {}
-    for match in re.finditer(r'src=["\']([^"\']+)["\']', html_renderizado):
-        src = match.group(1)
-        if src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
-            continue
-        ruta_imagen = Path(src)
-        if not ruta_imagen.is_absolute():
-            # Buscar en signatures/adjuntos o en la raiz del proyecto
-            # La src puede ser relativa a la firma (adjuntos/logo.png) o relativa al proyecto
-            candidatos = [
-                SIGNATURES_ADJUNTS_DIR / Path(src).name,
-                SIGNATURES_ADJUNTS_DIR / src,
-                BASE_DIR / src,
-            ]
-            encontrado = False
-            for candidato in candidatos:
-                if candidato.exists():
-                    ruta_imagen = candidato
-                    encontrado = True
-                    break
-            if not encontrado:
-                continue
-        if ruta_imagen.exists() and ruta_imagen not in imagenes:
-            imagenes.append(ruta_imagen)
-            imagenes_cids[ruta_imagen] = f"img_{uuid.uuid4().hex[:8]}"
-
-    # Reemplazar cualquier referencia a la imagen en el HTML por su cid
-    html_final = html_renderizado
-    for imagen, cid in imagenes_cids.items():
-        src_relativa = None
-        # Buscar la src original que apunto a esta imagen
-        for match in re.finditer(r'src=["\']([^"\']+)["\']', html_renderizado):
-            candidate_src = match.group(1)
-            if candidate_src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
-                continue
-            candidate_path = Path(candidate_src)
-            if not candidate_path.is_absolute():
-                if (SIGNATURES_ADJUNTS_DIR / candidate_src).resolve() == imagen.resolve():
-                    src_relativa = candidate_src
-                    break
-                if (SIGNATURES_ADJUNTS_DIR / candidate_path.name).resolve() == imagen.resolve():
-                    src_relativa = candidate_src
-                    break
-                if (BASE_DIR / candidate_src).resolve() == imagen.resolve():
-                    src_relativa = candidate_src
-                    break
-
-        src_variants = {
-            f'src="{imagen.name}"',
-            f"src='{imagen.name}'",
-            f'src="{str(imagen)}"',
-            f"src='{str(imagen)}'",
-        }
-        if src_relativa:
-            src_variants.add(f'src="{src_relativa}"')
-            src_variants.add(f"src='{src_relativa}'")
-            # Escapar espacios para HTML
-            src_escaped = src_relativa.replace(" ", "%20")
-            src_variants.add(f'src="{src_escaped}"')
-            src_variants.add(f"src='{src_escaped}'")
-
-        for variant in src_variants:
-            html_final = html_final.replace(variant, f'src="cid:{cid}"')
-
-    return html_final, imagenes
+    return detectar_imagenes_locales(html_renderizado, [SIGNATURES_ADJUNTS_DIR, BASE_DIR])
 
 
 # ---------------------------------------------------------------------------
@@ -436,11 +504,25 @@ def detectar_variables(texto: str) -> set[str]:
     return set(re.findall(r"\{\{([A-Za-z0-9_]+)\}\}", texto))
 
 
-def renderizar_opcion(texto_md: str, variables: dict[str, str]) -> str:
+def renderizar_opcion(opcion: dict[str, str] | str, variables: dict[str, str]) -> str:
     """Convierte una opcion Markdown a HTML y renderiza sus variables."""
-    html = md_a_html(texto_md)
+    if isinstance(opcion, dict):
+        cuerpo = opcion.get("cuerpo", "")
+    else:
+        cuerpo = opcion
+    html = md_a_html(cuerpo)
     plantilla = jinja2.Template(html)
     return plantilla.render(**variables)
+
+
+def renderizar_opcion_con_imagenes(
+    opcion: dict[str, str] | str,
+    variables: dict[str, str],
+    rutas_busqueda: list[Path],
+) -> tuple[str, list[Path]]:
+    """Renderiza una opcion y detecta imagenes locales para adjuntos inline."""
+    html = renderizar_opcion(opcion, variables)
+    return detectar_imagenes_locales(html, rutas_busqueda)
 
 
 def ensamblar_html(
@@ -452,63 +534,90 @@ def ensamblar_html(
 ) -> str:
     """
     Ensambla el HTML final sustituyendo cada slot del diseno.html por el
-    contenido correspondiente.
+    contenido correspondiente. Version legacy sin imagenes inline.
+    """
+    html_final, _ = ensamblar_html_con_imagenes(
+        plantilla, selecciones, variables, firma_html, personalizados
+    )
+    return html_final
+
+
+def ensamblar_html_con_imagenes(
+    plantilla: dict[str, Any],
+    selecciones: dict[str, list[str]],
+    variables: dict[str, str],
+    firma_html: str,
+    personalizados: dict[str, str],
+) -> tuple[str, list[Path]]:
+    """
+    Ensambla el HTML final y detecta imagenes inline en bloques, firma y texto obligatorio.
+    Devuelve (html_final, imagenes_inline).
     """
     html = plantilla["diseno"]
-
-    # Texto obligatorio
-    texto_html = plantilla["texto_obligatorio"]
-    for match in re.finditer(r'src=["\']([^"\']+)["\']', texto_html):
-        src = match.group(1)
-        if src.startswith(("http://", "https://", "mailto:", "tel:", "cid:")):
-            continue
-        # Imagenes locales del texto obligatorio se manejan como adjuntos normales
+    adjuntos_dir = plantilla.get("ruta", BASE_DIR / "templates" / plantilla["nombre"]) / "adjuntos"
+    rutas_busqueda_bloques = [adjuntos_dir, BASE_DIR]
+    rutas_busqueda_firma = [SIGNATURES_ADJUNTS_DIR, BASE_DIR]
+    todas_imagenes: list[Path] = []
 
     # Slots simples: saludo, cuerpo, despedida, firma, texto_obligatorio
     for slot in plantilla["campos"].keys():
         if slot in ("asuntos",):
             continue
         if slot == "firma":
-            continue  # la firma se trata aparte
+            continue
 
         opciones = selecciones.get(slot, [])
         fragmentos: list[str] = []
         for opcion_idx in opciones:
             try:
                 idx = int(opcion_idx) - 1
-                texto_md = plantilla["campos"][slot][idx]
-                fragmentos.append(renderizar_opcion(texto_md, variables))
+                opcion = plantilla["campos"][slot][idx]
+                html_opcion, imgs = renderizar_opcion_con_imagenes(opcion, variables, rutas_busqueda_bloques)
+                fragmentos.append(html_opcion)
+                for img in imgs:
+                    if img not in todas_imagenes:
+                        todas_imagenes.append(img)
             except (ValueError, IndexError):
                 continue
         contenido = "\n".join(fragmentos)
         html = html.replace(f"{{{{{slot}}}}}", contenido)
 
     # Slot de firma
-    html = html.replace("{{firma}}", firma_html)
+    firma_final, imgs_firma = detectar_imagenes_locales(firma_html, rutas_busqueda_firma)
+    html = html.replace("{{firma}}", firma_final)
+    for img in imgs_firma:
+        if img not in todas_imagenes:
+            todas_imagenes.append(img)
 
     # Slot de texto obligatorio
+    texto_html, imgs_texto = detectar_imagenes_locales(plantilla["texto_obligatorio"], rutas_busqueda_bloques)
     html = html.replace("{{texto_obligatorio}}", texto_html)
+    for img in imgs_texto:
+        if img not in todas_imagenes:
+            todas_imagenes.append(img)
 
     # Slots personalizados
     for slot, valor in personalizados.items():
         if not valor.strip():
-            # Eliminar el slot del HTML si esta vacio (no obligatorio)
             html = html.replace(f"{{{{{slot}}}}}", "")
         else:
-            html_renderizado = md_a_html(valor)
+            html_renderizado, imgs = detectar_imagenes_locales(md_a_html(valor), rutas_busqueda_bloques)
             html = html.replace(f"{{{{{slot}}}}}", html_renderizado)
+            for img in imgs:
+                if img not in todas_imagenes:
+                    todas_imagenes.append(img)
 
-    # Eliminar cualquier slot personalizado vacio no rellenado
+    # Eliminar slots personalizados vacios opcionales
     for match in re.finditer(r"\{\{([A-Za-z0-9_]+)\}\}", html):
         slot = match.group(1)
         if slot.startswith("personalizado") and not slot.endswith("_obligatorio"):
             html = html.replace(f"{{{{{slot}}}}}", "")
 
-    # Renderizar cualquier variable adicional del contacto que aparezca en el diseno
+    # Renderizar variables Jinja2 restantes
     plantilla_jinja = jinja2.Template(html)
     html = plantilla_jinja.render(**variables)
 
-    return html
+    return html, todas_imagenes
 
 
 def validar_html_final(html: str) -> list[str]:
