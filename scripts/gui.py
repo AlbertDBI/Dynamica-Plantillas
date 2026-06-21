@@ -69,6 +69,7 @@ def inicializar_estado() -> None:
         "empresa_correo": "",
         "asunto": "",
         "selecciones": {},
+        "ediciones_texto": {},
         "personalizado": "",
         "adjuntos_seleccionados": [],
         "preview_css": "",
@@ -85,6 +86,7 @@ def inicializar_estado() -> None:
 def resetear_selecciones() -> None:
     """Borra las selecciones de bloques cuando cambia la plantilla."""
     st.session_state["selecciones"] = {}
+    st.session_state["ediciones_texto"] = {}
     st.session_state["combo_nombre"] = ""
     st.session_state["asunto"] = ""
     st.session_state["personalizado"] = ""
@@ -133,11 +135,12 @@ def aplicar_combo(nombre_plantilla: str, combo_nombre: str) -> None:
     if combo_nombre in combos:
         combo = combos[combo_nombre]
         st.session_state["selecciones"] = {
-            k: [int(v) for v in vals] for k, vals in combo.items() if k not in ("asunto", "personalizado", "adjuntos_seleccionados")
+            k: [int(v) for v in vals] for k, vals in combo.items() if k not in ("asunto", "personalizado", "adjuntos_seleccionados", "ediciones_texto")
         }
         st.session_state["asunto"] = combo.get("asunto", "")
         st.session_state["personalizado"] = combo.get("personalizado", "")
         st.session_state["adjuntos_seleccionados"] = combo.get("adjuntos_seleccionados", [])
+        st.session_state["ediciones_texto"] = combo.get("ediciones_texto", {})
         st.toast(f"Combinacion '{combo_nombre}' cargada")
     else:
         st.toast(f"Combinacion '{combo_nombre}' no encontrada")
@@ -151,6 +154,7 @@ def guardar_combo_ui(plantilla_nombre: str) -> None:
     payload["asunto"] = st.session_state.get("asunto", "")
     payload["personalizado"] = st.session_state.get("personalizado", "")
     payload["adjuntos_seleccionados"] = st.session_state.get("adjuntos_seleccionados", [])
+    payload["ediciones_texto"] = st.session_state.get("ediciones_texto", {})
 
     with st.popover("Guardar combinacion"):
         nombre = st.text_input("Nombre de la combinacion", placeholder="oferta_corta")
@@ -170,16 +174,45 @@ def guardar_combo_ui(plantilla_nombre: str) -> None:
             st.rerun()
 
 
+def _opciones_con_ediciones(
+    plantilla: dict,
+    selecciones: dict[str, list[int]],
+    ediciones: dict[str, dict[str, str]],
+) -> dict[str, list[dict[str, str] | str]]:
+    """Devuelve una copia de las opciones seleccionadas aplicando ediciones de texto."""
+    opciones_editadas: dict[str, list[dict[str, str] | str]] = {}
+    for slot, indices in selecciones.items():
+        opciones_editadas[slot] = []
+        for idx in indices:
+            try:
+                opcion = plantilla["campos"][slot][idx - 1]
+            except (KeyError, IndexError):
+                continue
+            texto_editado = ediciones.get(slot, {}).get(str(idx))
+            if texto_editado is None:
+                opciones_editadas[slot].append(opcion)
+            elif isinstance(opcion, dict):
+                opcion_editada = dict(opcion)
+                opcion_editada["cuerpo"] = texto_editado
+                opciones_editadas[slot].append(opcion_editada)
+            else:
+                opciones_editadas[slot].append(texto_editado)
+    return opciones_editadas
+
+
 def renderizar_preview(
     plantilla: dict,
     firma: dict[str, Any] | None,
     variables: dict[str, str],
 ) -> str:
-    """Renderiza el HTML de previsualizacion."""
+    """Renderiza el HTML de previsualizacion aplicando ediciones de texto."""
     firma_html, _ = engine.renderizar_firma(firma, variables)
+    opciones_editadas = _opciones_con_ediciones(
+        plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
+    )
     html = engine.ensamblar_html(
-        plantilla=plantilla,
-        selecciones=st.session_state["selecciones"],
+        plantilla={**plantilla, "campos": opciones_editadas},
+        selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas.items()},
         variables=variables,
         firma_html=firma_html,
         personalizados={"personalizado": st.session_state["personalizado"]},
@@ -601,11 +634,15 @@ def main() -> None:
             orden_key = f"orden_{slot}"
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
 
-            def ver_cuerpo(slot_local: str, idx: int) -> str:
+            def ver_cuerpo_original(slot_local: str, idx: int) -> str:
                 opcion = plantilla["campos"][slot_local][idx - 1]
                 if isinstance(opcion, dict):
                     return opcion.get("cuerpo", "")
                 return opcion
+
+            def ver_cuerpo_editado(slot_local: str, idx: int) -> str:
+                ediciones = st.session_state.get("ediciones_texto", {})
+                return ediciones.get(slot_local, {}).get(str(idx), ver_cuerpo_original(slot_local, idx))
 
             def format_opcion(x: Any) -> str:
                 return nombres_opciones.get(int(x), "")[:80]
@@ -636,6 +673,8 @@ def main() -> None:
                 for pos, idx in enumerate(seleccionados_nuevos, start=1):
                     titulo = nombres_opciones.get(idx, "Sin titulo")
                     num_key = f"num_{slot}_{idx}"
+                    edit_key = f"edit_{slot}_{idx}"
+                    cuerpo_actual = ver_cuerpo_editado(slot, idx)
 
                     col_num, col_texto, col_del = st.columns([1, 6, 1])
                     with col_num:
@@ -650,8 +689,28 @@ def main() -> None:
                         orden_inputs.append((int(numero), idx))
                     with col_texto:
                         st.markdown(f"**{titulo}**")
-                        with st.expander("Ver cuerpo"):
-                            st.markdown(ver_cuerpo(slot, idx))
+                        with st.expander("Editar cuerpo"):
+                            editado = st.text_area(
+                                "Cuerpo editable (Markdown)",
+                                value=cuerpo_actual,
+                                key=edit_key,
+                                height=120,
+                                label_visibility="collapsed",
+                            )
+                            # Guardar edicion si cambio
+                            original = ver_cuerpo_original(slot, idx)
+                            ediciones = st.session_state.get("ediciones_texto", {})
+                            if editado != original:
+                                if slot not in ediciones:
+                                    ediciones[slot] = {}
+                                ediciones[slot][str(idx)] = editado
+                                st.session_state["ediciones_texto"] = ediciones
+                            elif slot in ediciones and str(idx) in ediciones[slot]:
+                                # Si se devolvio al original, limpiar edicion
+                                del ediciones[slot][str(idx)]
+                                if not ediciones[slot]:
+                                    del ediciones[slot]
+                                st.session_state["ediciones_texto"] = ediciones
                     with col_del:
                         if st.button("✖️", key=f"del_{slot}_{idx}"):
                             nueva = [x for x in seleccionados_nuevos if x != idx]
@@ -670,6 +729,7 @@ def main() -> None:
 
             if st.button("🗑️", key=f"clear_{slot}"):
                 st.session_state["selecciones"][slot] = []
+                st.session_state["ediciones_texto"] = {k: v for k, v in st.session_state.get("ediciones_texto", {}).items() if k != slot}
                 st.session_state[orden_key] = None
                 st.rerun()
 
@@ -764,9 +824,12 @@ def main() -> None:
 
                     from_email = config.get("remitente_default", "tu@correo.com")
                     firma_html, imagenes_firma = engine.renderizar_firma(firma, variables)
+                    opciones_editadas = _opciones_con_ediciones(
+                        plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
+                    )
                     html_final, imagenes_bloques = engine.ensamblar_html_con_imagenes(
-                        plantilla=plantilla,
-                        selecciones=st.session_state["selecciones"],
+                        plantilla={**plantilla, "campos": opciones_editadas},
+                        selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas.items()},
                         variables=variables,
                         firma_html=firma_html,
                         personalizados={"personalizado": personalizado},
