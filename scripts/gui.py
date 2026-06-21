@@ -586,15 +586,6 @@ def main() -> None:
         st.divider()
         st.subheader("7. Bloques del correo")
 
-        def reaplicar_orden(slot: str, seleccionados: list[int], orden_nuevo: list[int]) -> None:
-            """Reordena seleccionados segun la lista de indices deseada."""
-            mapping = {idx: pos for pos, idx in enumerate(seleccionados)}
-            nueva = [idx for idx in orden_nuevo if idx in mapping]
-            # Asegurar que todos los seleccionados estan
-            faltantes = [idx for idx in seleccionados if idx not in nueva]
-            nueva.extend(faltantes)
-            st.session_state["selecciones"][slot] = nueva
-
         for slot in slots:
             if slot in ("firma", "texto_obligatorio"):
                 continue
@@ -607,17 +598,26 @@ def main() -> None:
             opciones = listar_opciones_con_indices(plantilla["campos"][slot])
             nombres_opciones = {idx: texto for idx, texto in opciones}
             multiselect_key = f"multiselect_{slot}"
+            orden_key = f"orden_{slot}"
             seleccion_actual = st.session_state["selecciones"].get(slot, [])
 
-            # Render de preview del cuerpo para cada opcion
-            def ver_cuerpo(idx: int) -> str:
-                opcion = plantilla["campos"][slot][idx - 1]
+            def ver_cuerpo(slot_local: str, idx: int) -> str:
+                opcion = plantilla["campos"][slot_local][idx - 1]
                 if isinstance(opcion, dict):
                     return opcion.get("cuerpo", "")
                 return opcion
 
             def format_opcion(x: Any) -> str:
                 return nombres_opciones.get(int(x), "")[:80]
+
+            # Aplicar reordenamiento pendiente antes de renderizar
+            if st.session_state.get(orden_key):
+                nueva = st.session_state[orden_key]
+                st.session_state["selecciones"][slot] = nueva
+                if multiselect_key in st.session_state:
+                    st.session_state[multiselect_key] = nueva
+                st.session_state[orden_key] = None
+                st.rerun()
 
             seleccionados_nuevos = st.multiselect(
                 f"Opciones de {slot}",
@@ -631,10 +631,10 @@ def main() -> None:
             if seleccionados_nuevos:
                 st.markdown("Orden actual:")
                 num_items = len(seleccionados_nuevos)
+                orden_inputs: list[tuple[int, int]] = []
+
                 for pos, idx in enumerate(seleccionados_nuevos, start=1):
-                    opcion = plantilla["campos"][slot][idx - 1]
                     titulo = nombres_opciones.get(idx, "Sin titulo")
-                    cuerpo_preview = ver_cuerpo(idx)[:200].replace("\n", " ")
                     num_key = f"num_{slot}_{idx}"
 
                     col_num, col_texto, col_del = st.columns([1, 6, 1])
@@ -647,36 +647,30 @@ def main() -> None:
                             key=num_key,
                             label_visibility="collapsed",
                         )
+                        orden_inputs.append((int(numero), idx))
                     with col_texto:
                         st.markdown(f"**{titulo}**")
                         with st.expander("Ver cuerpo"):
-                            st.markdown(ver_cuerpo(idx))
+                            st.markdown(ver_cuerpo(slot, idx))
                     with col_del:
                         if st.button("✖️", key=f"del_{slot}_{idx}"):
                             nueva = [x for x in seleccionados_nuevos if x != idx]
                             st.session_state["selecciones"][slot] = nueva
-                            if num_key in st.session_state:
-                                del st.session_state[num_key]
+                            st.session_state[orden_key] = nueva
                             st.rerun()
 
-                # Recoger orden deseado y reasignar automaticamente
-                orden_deseado: list[int] = []
-                for pos, idx in enumerate(seleccionados_nuevos, start=1):
-                    num_key = f"num_{slot}_{idx}"
-                    if num_key in st.session_state:
-                        orden_deseado.append((st.session_state[num_key], idx))
-                if orden_deseado:
-                    orden_deseado.sort(key=lambda x: x[0])
-                    nueva_orden = [idx for _, idx in orden_deseado]
-                    if nueva_orden != seleccionados_nuevos:
-                        # Reasignar numeros automaticamente para evitar duplicados
-                        for nueva_pos, idx in enumerate(nueva_orden, start=1):
-                            st.session_state[f"num_{slot}_{idx}"] = nueva_pos
-                        reaplicar_orden(slot, seleccionados_nuevos, nueva_orden)
+                # Detectar si el usuario cambio algun numero
+                if orden_inputs:
+                    # Normalizar a 1..N sin duplicados manteniendo el orden de aparicion en empate
+                    orden_inputs.sort(key=lambda x: (x[0], seleccionados_nuevos.index(x[1])))
+                    nueva_orden = [idx for _, idx in orden_inputs]
+                    if nueva_orden != list(seleccionados_nuevos):
+                        st.session_state[orden_key] = nueva_orden
                         st.rerun()
 
             if st.button("🗑️", key=f"clear_{slot}"):
                 st.session_state["selecciones"][slot] = []
+                st.session_state[orden_key] = None
                 st.rerun()
 
         personalizado = st.text_area(
