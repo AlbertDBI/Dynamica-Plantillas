@@ -164,6 +164,16 @@ def cargar_plantilla(nombre: str) -> dict[str, Any]:
     }
 
 
+def extraer_style_del_cuerpo(cuerpo: str) -> tuple[str, str]:
+    """Extrae el primer bloque <style>...</style> del cuerpo y devuelve (css, cuerpo_sin_css)."""
+    match = re.search(r"(?s)<style[^\u003e]*?>(.*?)\s*</style>\s*", cuerpo)
+    if not match:
+        return "", cuerpo
+    css = match.group(1).strip()
+    cuerpo_sin_css = cuerpo[:match.start()] + cuerpo[match.end():]
+    return css, cuerpo_sin_css.strip()
+
+
 def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list[str]]:
     """
     Parsea un campos.md en secciones.
@@ -186,11 +196,15 @@ def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list
         if not cuerpo and not titulo:
             opcion_actual = None
             return
+        # Extraer CSS incrustado al inicio del cuerpo
+        css, cuerpo_limpio = extraer_style_del_cuerpo(cuerpo)
+        opcion_actual["cuerpo"] = cuerpo_limpio
+        opcion_actual["css"] = css
         if not titulo:
             # Fallback: primera linea del cuerpo como titulo
-            primera_linea = cuerpo.splitlines()[0].strip() if cuerpo else "Sin titulo"
+            primera_linea = cuerpo_limpio.splitlines()[0].strip() if cuerpo_limpio else "Sin titulo"
             opcion_actual["titulo"] = primera_linea[:80]
-        if not cuerpo:
+        if not cuerpo_limpio:
             opcion_actual["cuerpo"] = titulo
         secciones[seccion_actual].append(opcion_actual)
         opcion_actual = None
@@ -223,7 +237,7 @@ def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list
         # Bloques de opciones
         if linea.startswith("### "):
             guardar_opcion_actual()
-            opcion_actual = {"titulo": linea[4:].strip(), "cuerpo": ""}
+            opcion_actual = {"titulo": linea[4:].strip(), "cuerpo": "", "css": ""}
             i += 1
             continue
 
@@ -233,7 +247,8 @@ def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list
                 guardar_opcion_actual()
             contenido = linea[2:].strip()
             if contenido:
-                opcion_actual = {"titulo": contenido[:80], "cuerpo": contenido}
+                css, contenido_limpio = extraer_style_del_cuerpo(contenido)
+                opcion_actual = {"titulo": contenido_limpio[:80], "cuerpo": contenido_limpio, "css": css}
             i += 1
             continue
 
@@ -539,14 +554,16 @@ def renderizar_opcion(opcion: dict[str, str] | str, variables: dict[str, str]) -
     return plantilla.render(**variables)
 
 
-def renderizar_opcion_con_imagenes(
+def renderizar_opcion_con_imagenes_y_css(
     opcion: dict[str, str] | str,
     variables: dict[str, str],
     rutas_busqueda: list[Path],
-) -> tuple[str, list[Path]]:
-    """Renderiza una opcion y detecta imagenes locales para adjuntos inline."""
+) -> tuple[str, list[Path], str]:
+    """Renderiza una opcion y detecta imagenes locales y CSS inline asociado."""
     html = renderizar_opcion(opcion, variables)
-    return detectar_imagenes_locales(html, rutas_busqueda)
+    html, imgs = detectar_imagenes_locales(html, rutas_busqueda)
+    css = opcion.get("css", "") if isinstance(opcion, dict) else ""
+    return html, imgs, css
 
 
 def ensamblar_html(
@@ -560,7 +577,7 @@ def ensamblar_html(
     Ensambla el HTML final sustituyendo cada slot del diseno.html por el
     contenido correspondiente. Version legacy sin imagenes inline.
     """
-    html_final, _ = ensamblar_html_con_imagenes(
+    html_final, _, _ = ensamblar_html_con_imagenes_css(
         plantilla, selecciones, variables, firma_html, personalizados
     )
     return html_final
@@ -575,13 +592,31 @@ def ensamblar_html_con_imagenes(
 ) -> tuple[str, list[Path]]:
     """
     Ensambla el HTML final y detecta imagenes inline en bloques, firma y texto obligatorio.
-    Devuelve (html_final, imagenes_inline).
+    Devuelve (html_final, imagenes_inline). Mantenido por compatibilidad.
+    """
+    html, imagenes, _ = ensamblar_html_con_imagenes_css(
+        plantilla, selecciones, variables, firma_html, personalizados
+    )
+    return html, imagenes
+
+
+def ensamblar_html_con_imagenes_css(
+    plantilla: dict[str, Any],
+    selecciones: dict[str, list[str]],
+    variables: dict[str, str],
+    firma_html: str,
+    personalizados: dict[str, str],
+) -> tuple[str, list[Path], str]:
+    """
+    Ensambla el HTML final y detecta imagenes inline y CSS extra por opcion.
+    Devuelve (html_final, imagenes_inline, css_extra).
     """
     html = plantilla["diseno"]
     adjuntos_dir = plantilla.get("ruta", BASE_DIR / "templates" / plantilla["nombre"]) / "adjuntos"
     rutas_busqueda_bloques = [adjuntos_dir, BASE_DIR]
     rutas_busqueda_firma = [SIGNATURES_ADJUNTS_DIR, BASE_DIR]
     todas_imagenes: list[Path] = []
+    css_extra: list[str] = []
 
     # Slots simples: saludo, cuerpo, despedida, firma, texto_obligatorio
     for slot in plantilla["campos"].keys():
@@ -596,11 +631,13 @@ def ensamblar_html_con_imagenes(
             try:
                 idx = int(opcion_idx) - 1
                 opcion = plantilla["campos"][slot][idx]
-                html_opcion, imgs = renderizar_opcion_con_imagenes(opcion, variables, rutas_busqueda_bloques)
+                html_opcion, imgs, css_opcion = renderizar_opcion_con_imagenes_y_css(opcion, variables, rutas_busqueda_bloques)
                 fragmentos.append(html_opcion)
                 for img in imgs:
                     if img not in todas_imagenes:
                         todas_imagenes.append(img)
+                if css_opcion:
+                    css_extra.append(css_opcion)
             except (ValueError, IndexError):
                 continue
         contenido = "\n".join(fragmentos)
@@ -637,11 +674,19 @@ def ensamblar_html_con_imagenes(
         if slot.startswith("personalizado") and not slot.endswith("_obligatorio"):
             html = html.replace(f"{{{{{slot}}}}}", "")
 
+    # Inyectar CSS extra de las opciones antes de </style>
+    css_completo = "\n".join(css_extra)
+    if css_completo:
+        if "</style>" in html:
+            html = html.replace("</style>", f"{css_completo}\n</style>")
+        else:
+            html = html.replace("</head>", f"<style>{css_completo}</style></head>")
+
     # Renderizar variables Jinja2 restantes
     plantilla_jinja = jinja2.Template(html)
     html = plantilla_jinja.render(**variables)
 
-    return html, todas_imagenes
+    return html, todas_imagenes, css_completo
 
 
 def validar_html_final(html: str) -> list[str]:

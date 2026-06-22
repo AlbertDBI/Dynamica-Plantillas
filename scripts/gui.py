@@ -205,12 +205,12 @@ def renderizar_preview(
     firma: dict[str, Any] | None,
     variables: dict[str, str],
 ) -> str:
-    """Renderiza el HTML de previsualizacion aplicando ediciones de texto e inlining CSS."""
+    """Renderiza el HTML de previsualizacion aplicando ediciones de texto, CSS extra de opciones e inlining CSS."""
     firma_html, _ = engine.renderizar_firma(firma, variables)
     opciones_editadas = _opciones_con_ediciones(
         plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
     )
-    html = engine.ensamblar_html(
+    html, _, css_opciones = engine.ensamblar_html_con_imagenes_css(
         plantilla={**plantilla, "campos": opciones_editadas},
         selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas.items()},
         variables=variables,
@@ -220,7 +220,12 @@ def renderizar_preview(
 
     css_extra = st.session_state.get("preview_css", "")
     if css_extra:
-        html = html.replace("</head>", f"<style>{css_extra}</style></head>")
+        css_opciones = css_opciones + "\n" + css_extra
+    if css_opciones:
+        if "<style>" in html and "</style>" in html:
+            html = html.replace("</style>", f"{css_opciones}\n</style>")
+        else:
+            html = html.replace("</head>", f"<style>{css_opciones}</style></head>")
 
     # Aplicar CSS inline para compatibilidad con clientes de correo
     html = engine.inline_css(html)
@@ -829,7 +834,7 @@ def main() -> None:
                     opciones_editadas = _opciones_con_ediciones(
                         plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
                     )
-                    html_final, imagenes_bloques = engine.ensamblar_html_con_imagenes(
+                    html_final, imagenes_bloques, css_opciones = engine.ensamblar_html_con_imagenes_css(
                         plantilla={**plantilla, "campos": opciones_editadas},
                         selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas.items()},
                         variables=variables,
@@ -839,6 +844,8 @@ def main() -> None:
                     # Aplicar CSS inline para compatibilidad con clientes de correo
                     html_final = engine.inline_css(html_final)
                     imagenes_inline = imagenes_firma + imagenes_bloques
+                    # Guardar CSS extra para la preview
+                    st.session_state["preview_css"] = css_opciones
                     ruta_eml = engine.generar_eml(
                         destinatarios=destinatarios,
                         asunto=asunto_valor,
@@ -915,13 +922,21 @@ def main() -> None:
             opciones_editadas_preview = _opciones_con_ediciones(
                 plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
             )
-            html, _ = engine.ensamblar_html_con_imagenes(
+            html, _, css_opciones_preview = engine.ensamblar_html_con_imagenes_css(
                 plantilla={**plantilla, "campos": opciones_editadas_preview},
                 selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas_preview.items()},
                 variables=variables,
                 firma_html=engine.renderizar_firma(firma, variables)[0],
                 personalizados={"personalizado": st.session_state.get("personalizado", "")},
             )
+            css_extra_preview = st.session_state.get("preview_css", "")
+            if css_extra_preview:
+                css_opciones_preview = css_opciones_preview + "\n" + css_extra_preview
+            if css_opciones_preview:
+                if "<style>" in html and "</style>" in html:
+                    html = html.replace("</style>", f"{css_opciones_preview}\n</style>")
+                else:
+                    html = html.replace("</head>", f"<style>{css_opciones_preview}</style></head>")
             html = engine.inline_css(html)
             mostrar_estado_validacion(html)
 
