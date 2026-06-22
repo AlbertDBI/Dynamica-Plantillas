@@ -843,8 +843,9 @@ def main() -> None:
                         adjuntos=st.session_state["adjuntos_seleccionados"],
                         imagenes_inline=imagenes_inline,
                     )
-                    # Registrar en todos los destinatarios principales
-                    for email in para:
+                    # Registrar envio en todos los destinatarios conocidos
+                    todos_destinatarios = list(set(para + cc + cco))
+                    for email in todos_destinatarios:
                         c = contacto_por_email(email)
                         if c:
                             engine.registrar_envio_en_contacto(c, ruta_eml)
