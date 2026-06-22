@@ -701,6 +701,10 @@ def generar_eml(
     msg["Subject"] = asunto
     msg["From"] = from_email
 
+    # Encabezados para que Outlook y otros clientes abran el .eml como borrador editable
+    msg["X-Unsent"] = "1"
+    msg["X-Ribbon-Draft"] = "1"
+
     # Construir cabeceras To, Cc, Bcc
     to_list = [d["email"] for d in destinatarios if d.get("tipo", "para") == "para"]
     cc_list = [d["email"] for d in destinatarios if d.get("tipo") == "cc"]
