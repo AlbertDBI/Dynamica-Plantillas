@@ -83,6 +83,41 @@ def limpiar_output(carpeta: Path, modo: str, dias: int = 30) -> None:
     # modo "guardar": no hacer nada
 
 
+def _logs_dir() -> Path:
+    """Devuelve la carpeta de logs del proyecto."""
+    return Path(__file__).resolve().parent.parent / "logs"
+
+
+def auditar_contacto(operacion: str, ruta: Path | None = None, detalles: str = "") -> None:
+    """Registra una operacion sobre contactos en el log de auditoria."""
+    logs = _logs_dir()
+    logs.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().isoformat()
+    ruta_str = str(ruta) if ruta else ""
+    linea = f"[{timestamp}] {operacion:10} {ruta_str}"
+    if detalles:
+        linea += f" | {detalles}"
+    linea += "\n"
+    log_file = logs / "contact_audit.log"
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(linea)
+
+
+def backup_contacto(ruta: Path, max_backups: int = 10) -> None:
+    """Guarda una copia de seguridad del contacto antes de sobrescribirlo."""
+    if not ruta.exists():
+        return
+    backups_dir = ruta.parent / ".backups"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = timestamp_para_archivo()
+    destino = backups_dir / f"{ruta.stem}_{timestamp}.md"
+    shutil.copy2(ruta, destino)
+    # Mantener solo los ultimos max_backups
+    backups = sorted(backups_dir.glob(f"{ruta.stem}_*.md"), key=lambda p: p.stat().st_mtime)
+    for antiguo in backups[:-max_backups]:
+        antiguo.unlink()
+
+
 def timestamp_para_archivo() -> str:
     """Devuelve un timestamp formato yyyymmdd_HHMMSS."""
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

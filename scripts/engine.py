@@ -25,6 +25,8 @@ from premailer import Premailer
 
 from utils import (
     abrir_archivo,
+    auditar_contacto,
+    backup_contacto,
     fecha_hoy_iso,
     limpiar_output,
     normalizar_slug,
@@ -443,16 +445,20 @@ def guardar_contacto(slug: str, datos: dict[str, Any], historial: str = "") -> N
     """Guarda o actualiza un contacto."""
     CONTACTS_DIR.mkdir(parents=True, exist_ok=True)
     ruta = CONTACTS_DIR / f"{slug}.md"
+    backup_contacto(ruta)
     post = frontmatter.Post(historial, **datos)
     with open(ruta, "w", encoding="utf-8") as f:
         frontmatter.dump(post, f)
+    auditar_contacto("GUARDAR", ruta)
 
 
 def eliminar_contacto(slug: str) -> None:
     """Elimina definitivamente un contacto."""
     ruta = CONTACTS_DIR / f"{slug}.md"
     if ruta.exists():
+        backup_contacto(ruta)
         ruta.unlink()
+        auditar_contacto("ELIMINAR", ruta)
 
 
 def crear_o_actualizar_contacto(
@@ -486,6 +492,7 @@ def crear_o_actualizar_contacto(
         datos_actualizados = datos
 
     guardar_contacto(slug, datos_actualizados, historial)
+    auditar_contacto("CREAR" if not existe else "ACTUALIZAR", CONTACTS_DIR / f"{slug}.md")
     contacto = cargar_contacto(slug)
     if contacto is None:
         raise RuntimeError("No se pudo cargar el contacto recien guardado")
