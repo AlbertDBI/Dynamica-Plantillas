@@ -164,14 +164,14 @@ def cargar_plantilla(nombre: str) -> dict[str, Any]:
     }
 
 
-def extraer_style_del_cuerpo(cuerpo: str) -> tuple[str, str]:
-    """Extrae el primer bloque <style>...</style> del cuerpo y devuelve (css, cuerpo_sin_css)."""
-    match = re.search(r"(?s)<style[^\u003e]*?>(.*?)\s*</style>\s*", cuerpo)
+def extraer_style_del_html(html: str) -> tuple[str, str]:
+    """Extrae el primer bloque <style>...</style> de un HTML y devuelve (css, html_sin_css)."""
+    match = re.search(r"(?s)<style[^>]*?>\s*(.*?)\s*</style>\s*", html)
     if not match:
-        return "", cuerpo
+        return "", html
     css = match.group(1).strip()
-    cuerpo_sin_css = cuerpo[:match.start()] + cuerpo[match.end():]
-    return css, cuerpo_sin_css.strip()
+    html_sin_css = html[:match.start()] + html[match.end():]
+    return css, html_sin_css.strip()
 
 
 def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list[str]]:
@@ -191,18 +191,21 @@ def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list
         nonlocal opcion_actual
         if opcion_actual is None or seccion_actual is None:
             return
-        cuerpo = opcion_actual["cuerpo"].strip()
+        cuerpo_md = opcion_actual["cuerpo"].strip()
         titulo = opcion_actual["titulo"].strip()
-        if not cuerpo and not titulo:
+        if not cuerpo_md and not titulo:
             opcion_actual = None
             return
-        # Extraer CSS incrustado al inicio del cuerpo
-        css, cuerpo_limpio = extraer_style_del_cuerpo(cuerpo)
+        # Convertir Markdown a HTML y luego extraer el <style> si existe
+        cuerpo_html = md_a_html(cuerpo_md)
+        css, cuerpo_limpio = extraer_style_del_html(cuerpo_html)
         opcion_actual["cuerpo"] = cuerpo_limpio
         opcion_actual["css"] = css
+        opcion_actual["es_html"] = True
         if not titulo:
-            # Fallback: primera linea del cuerpo como titulo
-            primera_linea = cuerpo_limpio.splitlines()[0].strip() if cuerpo_limpio else "Sin titulo"
+            # Fallback: primera linea del cuerpo limpio sin etiquetas HTML
+            texto_plano = re.sub(r"<[^>]+>", "", cuerpo_limpio).strip()
+            primera_linea = texto_plano.splitlines()[0].strip() if texto_plano else "Sin titulo"
             opcion_actual["titulo"] = primera_linea[:80]
         if not cuerpo_limpio:
             opcion_actual["cuerpo"] = titulo
@@ -247,8 +250,15 @@ def parsear_campos_md(texto: str) -> tuple[dict[str, list[dict[str, str]]], list
                 guardar_opcion_actual()
             contenido = linea[2:].strip()
             if contenido:
-                css, contenido_limpio = extraer_style_del_cuerpo(contenido)
-                opcion_actual = {"titulo": contenido_limpio[:80], "cuerpo": contenido_limpio, "css": css}
+                html = md_a_html(contenido)
+                css, contenido_limpio = extraer_style_del_html(html)
+                texto_titulo = re.sub(r"<[^>]+>", "", contenido_limpio).strip()
+                opcion_actual = {
+                    "titulo": (texto_titulo or contenido)[:80],
+                    "cuerpo": contenido_limpio,
+                    "css": css,
+                    "es_html": True,
+                }
             i += 1
             continue
 
@@ -518,9 +528,21 @@ def crear_o_actualizar_contacto(
 # Ensamblaje y renderizado
 # ---------------------------------------------------------------------------
 
+def _añadir_markdown_attr_a_bloques_html(texto_md: str) -> str:
+    """Añade markdown='1' a etiquetas de bloque HTML para que md_in_html procese su contenido."""
+    etiquetas = ["div", "table", "tbody", "thead", "tr", "td", "th", "section", "article", "aside"]
+    resultado = texto_md
+    for tag in etiquetas:
+        # Solo añade markdown='1' si la etiqueta no lo tiene ya
+        patron = re.compile(rf"(<{tag}\b)([^\u003e]*?)(?<!markdown=)(\/?>)", re.IGNORECASE)
+        resultado = patron.sub(rf'\1\2 markdown="1"\3', resultado)
+    return resultado
+
+
 def md_a_html(texto: str) -> str:
-    """Convierte Markdown a HTML."""
-    return markdown.markdown(texto)
+    """Convierte Markdown a HTML, procesando tambien Markdown dentro de bloques HTML."""
+    texto_preparado = _añadir_markdown_attr_a_bloques_html(texto)
+    return markdown.markdown(texto_preparado, extensions=["md_in_html"])
 
 
 def inline_css(html: str) -> str:
@@ -547,9 +569,12 @@ def renderizar_opcion(opcion: dict[str, str] | str, variables: dict[str, str]) -
     """Convierte una opcion Markdown a HTML y renderiza sus variables."""
     if isinstance(opcion, dict):
         cuerpo = opcion.get("cuerpo", "")
+        # Si el cuerpo ya fue convertido a HTML en parsear_campos_md, no pasar de nuevo por markdown
+        ya_es_html = opcion.get("es_html", False)
     else:
         cuerpo = opcion
-    html = md_a_html(cuerpo)
+        ya_es_html = False
+    html = cuerpo if ya_es_html else md_a_html(cuerpo)
     plantilla = jinja2.Template(html)
     return plantilla.render(**variables)
 
