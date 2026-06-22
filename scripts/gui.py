@@ -205,7 +205,7 @@ def renderizar_preview(
     firma: dict[str, Any] | None,
     variables: dict[str, str],
 ) -> str:
-    """Renderiza el HTML de previsualizacion aplicando ediciones de texto."""
+    """Renderiza el HTML de previsualizacion aplicando ediciones de texto e inlining CSS."""
     firma_html, _ = engine.renderizar_firma(firma, variables)
     opciones_editadas = _opciones_con_ediciones(
         plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
@@ -222,6 +222,8 @@ def renderizar_preview(
     if css_extra:
         html = html.replace("</head>", f"<style>{css_extra}</style></head>")
 
+    # Aplicar CSS inline para compatibilidad con clientes de correo
+    html = engine.inline_css(html)
     return html
 
 
@@ -834,6 +836,8 @@ def main() -> None:
                         firma_html=firma_html,
                         personalizados={"personalizado": personalizado},
                     )
+                    # Aplicar CSS inline para compatibilidad con clientes de correo
+                    html_final = engine.inline_css(html_final)
                     imagenes_inline = imagenes_firma + imagenes_bloques
                     ruta_eml = engine.generar_eml(
                         destinatarios=destinatarios,
@@ -908,13 +912,17 @@ def main() -> None:
                     st.markdown(f"📎 **Adjuntos:** {nombres_adjuntos}")
 
             # --- Estado de validacion ---
+            opciones_editadas_preview = _opciones_con_ediciones(
+                plantilla, st.session_state["selecciones"], st.session_state.get("ediciones_texto", {})
+            )
             html, _ = engine.ensamblar_html_con_imagenes(
-                plantilla=plantilla,
-                selecciones=st.session_state["selecciones"],
+                plantilla={**plantilla, "campos": opciones_editadas_preview},
+                selecciones={slot: list(range(1, len(opts) + 1)) for slot, opts in opciones_editadas_preview.items()},
                 variables=variables,
                 firma_html=engine.renderizar_firma(firma, variables)[0],
                 personalizados={"personalizado": st.session_state.get("personalizado", "")},
             )
+            html = engine.inline_css(html)
             mostrar_estado_validacion(html)
 
             st.markdown("---")

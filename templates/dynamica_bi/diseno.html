@@ -21,7 +21,7 @@
       overflow: hidden;
     }
     .header {
-      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+      background-color: #0f172a;
       padding: 28px 32px;
       color: #ffffff;
     }
@@ -34,82 +34,38 @@
     .header p {
       margin: 6px 0 0;
       font-size: 14px;
-      opacity: 0.85;
+      color: #93c5fd;
     }
-    .body {
+    .email-body {
       padding: 32px;
     }
-    .body p {
+    .email-body p {
       margin: 0 0 16px;
     }
-    .highlight-box {
+    .email-body ul {
+      margin: 0 0 16px;
+      padding-left: 24px;
+    }
+    .email-body li {
+      margin: 6px 0;
+    }
+    .email-body blockquote {
       background-color: #eff6ff;
       border-left: 4px solid #2563eb;
-      padding: 18px 20px;
+      padding: 16px 20px;
       margin: 20px 0;
       border-radius: 0 8px 8px 0;
     }
-    .highlight-box p:last-child {
+    .email-body blockquote p:last-child {
       margin-bottom: 0;
     }
-    .section-title {
-      font-size: 15px;
-      font-weight: 700;
+    .email-body strong {
       color: #1e3a8a;
-      margin: 24px 0 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
     }
-    ul.benefits {
-      list-style: none;
-      padding: 0;
-      margin: 0 0 16px;
-    }
-    ul.benefits li {
-      padding: 8px 0 8px 28px;
-      position: relative;
-    }
-    ul.benefits li::before {
-      content: "✓";
-      position: absolute;
-      left: 0;
-      color: #2563eb;
-      font-weight: bold;
-    }
-    .cta-box {
-      background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
-      color: #ffffff;
-      padding: 24px;
-      border-radius: 10px;
-      text-align: center;
+    .email-body hr {
+      border: none;
+      border-top: 1px solid #e2e8f0;
       margin: 24px 0;
-    }
-    .cta-box a {
-      display: inline-block;
-      background-color: #ffffff;
-      color: #1e3a8a;
-      padding: 12px 24px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-weight: 700;
-      margin-top: 10px;
-    }
-    .sector-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin: 16px 0;
-    }
-    .sector-card {
-      background-color: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 14px;
-    }
-    .sector-card strong {
-      color: #1e3a8a;
-      display: block;
-      margin-bottom: 4px;
     }
     .footer {
       background-color: #f8fafc;
@@ -118,23 +74,15 @@
       font-size: 13px;
       color: #64748b;
     }
-    .signature-name {
+    .footer p {
+      margin: 4px 0;
+    }
+    .footer strong {
       color: #0f172a;
-      font-weight: 700;
       font-size: 15px;
     }
-    .signature-role {
-      color: #475569;
-      margin-bottom: 8px;
-    }
-    .signature-line {
-      margin: 3px 0;
-    }
     @media (max-width: 520px) {
-      .sector-grid {
-        grid-template-columns: 1fr;
-      }
-      .body, .header, .footer {
+      .email-body, .header, .footer {
         padding: 22px;
       }
     }
@@ -146,12 +94,14 @@
       <h1>Dynamica BI</h1>
       <p>Agents d'IA amb veu humana per a la teva empresa</p>
     </div>
-    <div class="body">
+
+    <div class="email-body">
       {{saludo}}
       {{cuerpo}}
       {{personalizado}}
       {{despedida}}
     </div>
+
     <div class="footer">
       {{firma}}
     </div>

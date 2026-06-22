@@ -21,6 +21,8 @@ import jinja2
 import markdown
 import yaml
 
+from premailer import Premailer
+
 from utils import (
     abrir_archivo,
     fecha_hoy_iso,
@@ -497,6 +499,21 @@ def crear_o_actualizar_contacto(
 def md_a_html(texto: str) -> str:
     """Convierte Markdown a HTML."""
     return markdown.markdown(texto)
+
+
+def inline_css(html: str) -> str:
+    """Convierte CSS de <style> a estilos inline para compatibilidad con clientes de correo."""
+    try:
+        p = Premailer(
+            html,
+            remove_classes=True,
+            strip_important=False,
+        )
+        return p.transform()
+    except Exception as e:
+        # Si premailer falla, devolver el HTML original
+        print(f"Error al aplicar inline CSS: {e}")
+        return html
 
 
 def detectar_variables(texto: str) -> set[str]:
